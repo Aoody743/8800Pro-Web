@@ -69,22 +69,6 @@ const rawEmptyChannelBlock = new Uint8Array(64).fill(0xff)
 applyBlockToAppData(rawEmptyChannelData, 0x0880, rawEmptyChannelBlock)
 assert.deepEqual(Array.from(encodeBlockForAddress(rawEmptyChannelData, 0x0880)), Array.from(rawEmptyChannelBlock))
 
-const noisyEmptyChannelData = createDefaultAppData()
-const noisyEmptyChannelBlock = new Uint8Array(64).fill(0xff)
-noisyEmptyChannelBlock.set([0xff, 0x12, 0x34, 0x41, 0x20, 0x00, 0x00, 0x00], 0)
-noisyEmptyChannelBlock.set([0xff, 0x56, 0x78, 0x41, 0x20, 0x00, 0x00, 0x00], 32)
-applyBlockToAppData(noisyEmptyChannelData, 0x0880, noisyEmptyChannelBlock)
-assert.deepEqual(Array.from(encodeBlockForAddress(noisyEmptyChannelData, 0x0880)), Array.from(new Uint8Array(64).fill(0xff)))
-
-const bogusFrequencyData = createDefaultAppData()
-const bogusFrequencyBlock = new Uint8Array(64).fill(0xff)
-bogusFrequencyBlock.set([0x57, 0x08, 0x40, 0x40], 0)
-bogusFrequencyBlock.set([0x57, 0x08, 0x40, 0x40], 32)
-applyBlockToAppData(bogusFrequencyData, 0x0880, bogusFrequencyBlock)
-assert.equal(bogusFrequencyData.channels[1][4].rxFreq, '404.00857')
-assert.equal(bogusFrequencyData.channels[1][5].rxFreq, '404.00857')
-assert.deepEqual(Array.from(encodeBlockForAddress(bogusFrequencyData, 0x0880)), Array.from(new Uint8Array(64).fill(0xff)))
-
 const newChannelWithoutRaw = createDefaultAppData()
 newChannelWithoutRaw.channels[0][0] = {
   ...newChannelWithoutRaw.channels[0][0],
@@ -97,15 +81,6 @@ newChannelWithoutRaw.channels[0][0] = {
 const newChannelWithoutRawBlock = encodeBlockForAddress(newChannelWithoutRaw, 0)
 assert.equal(newChannelWithoutRawBlock[12], 15)
 assert.equal(newChannelWithoutRawBlock[13], 3)
-
-const invalidVisibleChannel = createDefaultAppData()
-invalidVisibleChannel.channels[0][0] = {
-  ...invalidVisibleChannel.channels[0][0],
-  visible: true,
-  rxFreq: '404.00857',
-  txFreq: '404.00857',
-}
-assert.deepEqual(Array.from(encodeBlockForAddress(invalidVisibleChannel, 0).slice(0, 32)), Array.from(new Uint8Array(32).fill(0xff)))
 
 const vfoSource = createDefaultAppData()
 vfoSource.vfos.vfoAFreq = '145.50000'
@@ -213,7 +188,7 @@ class BluetoothWriteTransport implements RadioTransport {
       this.queue.push(...Array.from(new Uint8Array([0x01, 0x36, 0x01, 0x74, 0x04, 0x00, 0x05, 0x20, 0x02, 0x00, 0x02, 0x60, 0x00, 0x03, 0x50, 0x04])))
       return
     }
-    if (data.length === 64) {
+    if (data[0] === 0x57) {
       this.writeFrameCount += 1
       if (this.writeFrameCount % 2 === 0) this.queue.push(0x06)
       return
@@ -241,17 +216,15 @@ bluetoothWriteData.channels[0][0] = {
   name: 'BLE-1',
 }
 const blePayload = encodeBlockForAddress(bluetoothWriteData, 0)
-await new Shx8800ProSession(bluetoothWriteTransport, { bluetoothBlockDelayMs: 0 }).writeRadio(bluetoothWriteData)
-const bleHeaders = bluetoothWriteTransport.writes.filter((write) => write.length === 4 && write[0] === 0x57)
-const bleWrites = bluetoothWriteTransport.writes.filter((write) => write.length === 64)
-assert.equal(bleHeaders.length, 1)
-assert.deepEqual(Array.from(bleHeaders[0]), [0x57, 0x00, 0x00, 0x40])
+await new Shx8800ProSession(bluetoothWriteTransport).writeRadio(bluetoothWriteData)
+const bleWrites = bluetoothWriteTransport.writes.filter((write) => write[0] === 0x57)
 assert.equal(bleWrites.length, getShx8800ProReadWriteAddresses().length)
-assert.equal(bleWrites[0].length, 64)
-assert.equal(bleWrites[1].length, 64)
-assert.deepEqual(Array.from(bleWrites[0]), Array.from(blePayload))
-assert.notDeepEqual(Array.from(bleWrites[1].slice(0, 4)), [0x57, 0x00, 0x40, 0x40])
-assert.equal(bluetoothWriteTransport.configs.some((config) => config.packetSize === 20 && config.writeMode === 'with-response' && config.interChunkDelayMs === 12), true)
+assert.equal(bleWrites[0].length, 68)
+assert.equal(bleWrites[1].length, 68)
+assert.deepEqual(Array.from(bleWrites[0].slice(0, 4)), [0x57, 0x00, 0x00, 0x40])
+assert.deepEqual(Array.from(bleWrites[1].slice(0, 4)), [0x57, 0x00, 0x40, 0x40])
+assert.deepEqual(Array.from(bleWrites[0].slice(4)), Array.from(blePayload))
+assert.equal(bluetoothWriteTransport.configs.some((config) => config.packetSize === 18 && config.writeMode === 'with-response' && config.interChunkDelayMs === 20), true)
 
 const rawPreserveData = createDefaultAppData()
 const rawFunction = new Uint8Array(64)

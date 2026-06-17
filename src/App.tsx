@@ -936,24 +936,8 @@ function ChannelEditor({
           <span>发射 <strong>{selected.txFreq || selected.rxFreq || '空'}</strong></span>
         </div>
         <div className="form-grid">
-          <TextField
-            label="接收频率"
-            value={selected.rxFreq}
-            placeholder="例：145.50000"
-            hint={fieldTips.rxFreq}
-            inputMode="decimal"
-            onChange={(value) => updateSelected({ rxFreq: sanitizeFrequencyDraft(value) })}
-            onBlur={(value) => updateSelected({ rxFreq: normalizeRadioFrequency(value, value) })}
-          />
-          <TextField
-            label="发射频率"
-            value={selected.txFreq}
-            placeholder="不确定时先填和接收一样"
-            hint={fieldTips.txFreq}
-            inputMode="decimal"
-            onChange={(value) => updateSelected({ txFreq: sanitizeFrequencyDraft(value) })}
-            onBlur={(value) => updateSelected({ txFreq: normalizeRadioFrequency(value, value) })}
-          />
+          <TextField label="接收频率" value={selected.rxFreq} placeholder="例：145.50000" hint={fieldTips.rxFreq} onChange={(value) => updateSelected({ rxFreq: normalizeRadioFrequency(value, value) })} />
+          <TextField label="发射频率" value={selected.txFreq} placeholder="不确定时先填和接收一样" hint={fieldTips.txFreq} onChange={(value) => updateSelected({ txFreq: normalizeRadioFrequency(value, value) })} />
           <SelectField label="接收亚音" value={selected.rxTone} options={TONE_CHOICES} hint={fieldTips.rxTone} onChange={(value) => updateSelected({ rxTone: value })} />
           <SelectField label="发射亚音" value={selected.txTone} options={TONE_CHOICES} hint={fieldTips.txTone} onChange={(value) => updateSelected({ txTone: value })} />
           <SelectIndex label="功率" value={selected.txPower} options={CHANNEL_CHOICES.power} hint="发射强度。不懂就先保持默认。" onChange={(value) => updateSelected({ txPower: value })} />
@@ -1094,17 +1078,6 @@ function DynamicVfoField({
   if (field.type === 'onoff') return <SelectIndex label={field.label} value={Number(value)} options={CHANNEL_CHOICES.busyLock} onChange={(next) => update(field.key, next)} />
   if (field.type === 'signal') return <SelectIndex label={field.label} value={Number(value)} options={CHANNEL_CHOICES.signalGroup} onChange={(next) => update(field.key, next)} />
   if (field.type === 'direction') return <SelectIndex label={field.label} value={Number(value)} options={VFO_CHOICES.direction} onChange={(next) => update(field.key, next)} />
-  if (field.key === 'vfoAFreq' || field.key === 'vfoBFreq') {
-    return (
-      <TextField
-        label={field.label}
-        value={String(value)}
-        inputMode="decimal"
-        onChange={(next) => update(field.key, sanitizeFrequencyDraft(next))}
-        onBlur={(next) => update(field.key, normalizeRadioFrequency(next, next))}
-      />
-    )
-  }
   return <TextField label={field.label} value={String(value)} onChange={(next) => update(field.key, next)} />
 }
 
@@ -1340,18 +1313,11 @@ function DtmfPanel({ data, setData }: DataPanelProps) {
 
 function FmPanel({ data, setData }: DataPanelProps) {
   const [showTips, setShowTips] = useState(false)
-  function updateCurrent(value: number) {
+  function updateChannel(index: number, value: string) {
+    const parsed = Math.round(Number(value) * 10)
     setData((current) => {
       const next = cloneAppData(current)
-      next.fm.currentFreq = value
-      next.updatedAt = new Date().toISOString()
-      return next
-    })
-  }
-  function updateChannel(index: number, value: number) {
-    setData((current) => {
-      const next = cloneAppData(current)
-      next.fm.channels[index] = value
+      next.fm.channels[index] = Number.isFinite(parsed) ? parsed : 0
       next.updatedAt = new Date().toISOString()
       return next
     })
@@ -1368,10 +1334,17 @@ function FmPanel({ data, setData }: DataPanelProps) {
             <input type="checkbox" checked={showTips} onChange={(event) => setShowTips(event.target.checked)} />
             显示填写提示
           </label>
-          <FmFrequencyField
+          <TextField
             label="当前频率"
-            freq={data.fm.currentFreq}
-            onCommit={updateCurrent}
+            value={(data.fm.currentFreq / 10).toFixed(1)}
+            onChange={(value) =>
+              setData((current) => {
+                const next = cloneAppData(current)
+                next.fm.currentFreq = Math.round(Number(value) * 10)
+                next.updatedAt = new Date().toISOString()
+                return next
+              })
+            }
             compact
           />
         </div>
@@ -1384,66 +1357,16 @@ function FmPanel({ data, setData }: DataPanelProps) {
       ) : null}
       <div className="fm-grid">
         {data.fm.channels.map((freq, index) => (
-          <FmFrequencyField
+          <TextField
             key={index}
             label={`FM ${index + 1}`}
-            freq={freq}
+            value={freq ? (freq / 10).toFixed(1) : ''}
             hint={showTips ? '填写广播频率，单位 MHz，例如 88.7。' : undefined}
-            allowEmpty
-            onCommit={(value) => updateChannel(index, value)}
+            onChange={(value) => updateChannel(index, value)}
           />
         ))}
       </div>
     </section>
-  )
-}
-
-function FmFrequencyField({
-  label,
-  freq,
-  onCommit,
-  allowEmpty = false,
-  compact = false,
-  hint,
-}: {
-  label: string
-  freq: number
-  onCommit: (value: number) => void
-  allowEmpty?: boolean
-  compact?: boolean
-  hint?: string
-}) {
-  const [draft, setDraft] = useState(() => formatFmFrequency(freq))
-  useEffect(() => {
-    setDraft(formatFmFrequency(freq))
-  }, [freq])
-
-  function commit(value: string) {
-    const parsed = Number(value)
-    if (allowEmpty && value.trim() === '') {
-      onCommit(0)
-      setDraft('')
-      return
-    }
-    if (Number.isFinite(parsed) && parsed >= 65 && parsed <= 108) {
-      const next = Math.round(parsed * 10)
-      onCommit(next)
-      setDraft(formatFmFrequency(next))
-      return
-    }
-    setDraft(formatFmFrequency(freq))
-  }
-
-  return (
-    <TextField
-      label={label}
-      value={draft}
-      compact={compact}
-      hint={hint}
-      inputMode="decimal"
-      onChange={(value) => setDraft(sanitizeFmFrequencyDraft(value))}
-      onBlur={commit}
-    />
   )
 }
 
@@ -1811,19 +1734,15 @@ function AboutPanel() {
         </p>
 
         <h4>技术实现</h4>
-        <p>8800Pro Web 的写频链路不是一开始就有完整说明书可以照着做。最早的方向来自社区开源项目：先从已有的森海克斯写频工具里确认大致的内存布局、信道字段、亚音编码和 DTMF 区域，再一点点把这些规则搬到浏览器里，用 TypeScript 写成可测试的编解码器。</p>
-        <p>线写频部分是从官方软件和开源实现对照出来的。我们反复抓取串口上的握手、读块、写块和结束指令，确认 `PROGRAMSHXPU`、ACK、地址块和 64 字节数据区之间的关系。每次读出来的原始块都会保留下来，已知字段由页面编辑，未知字段尽量原样带回，这样既能改信道，又不容易破坏机器里暂时还没完全命名的设置。</p>
-        <p>蓝牙写频则更像一次实机考古。网页的 Web Bluetooth、macOS CoreBluetooth 脚本、APK 行为和真实对讲机响应被放在一起比对：先确认设备广播名和 FFE0/FFE1 特征值，再验证 BLE 下读频仍然使用带地址的 `52 addr 40` 帧。后来遇到第 70 个信道附近重启、空信道冒出随机频率等问题，也是靠实机读回、逐块比较和保留现场日志才定位到空块必须写成干净的 `FF` 填充，而 404.00857 这类频率则暴露出重复的 `57 addr 40` 写帧头被机器当成数据区写入的问题，所以蓝牙写频改为只发送一次起始写命令，后续按设备顺序连续发送 64 字节数据区，避免把每块地址头混进蓝牙 payload。</p>
-        <p>现在项目里把这些经验固化成了协议测试：频率、中文信道名、亚音、VFO、功能设置、蓝牙双块 ACK、开机图写入限制、空信道填充都会被测试覆盖。界面看起来是一个网页，底下其实是一套逐块读写、保留原始镜像、再按设备习惯安全写回的 8800Pro 专用协议层。</p>
+        <p>8800Pro Web 的写频链路不是照着一份完整文档做出来的，而是一步步从开源项目、官方写频软件、APK 行为和真实机器响应里拼出来的。最开始先借助社区项目确认信道、VFO、功能设置、DTMF、区域名称和 FM 收音机大概落在哪些地址，再把这些规则整理成浏览器里可测试的 TypeScript 编解码器。</p>
+        <p>线写频部分相对清晰一些：通过 USB 串口反复对照握手、读块、写块和结束指令，确认 `PROGRAMSHXPU`、ACK、`52 addr 40` 读帧、`57 addr 40` 写帧和 64 字节数据区的关系。页面读频时会保存原始块，写回时只改已经识别的字段，尽量保留暂时没完全命名的机器设置。</p>
+        <p>蓝牙写频则更像实机摸索：先确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索和手台读回内容逐块比对。因为不同固件对 BLE 分包和 ACK 节奏很敏感，当前版本保留在相对稳定的旧链路上；正式整机写回前仍建议先备份，重要频表优先用 USB 写频线。</p>
+        <p>这些经验现在都沉到协议层和测试里：频率、中文信道名、亚音、VFO、功能设置、开机图限制、空信道填充和蓝牙基础写入都会被覆盖。界面看起来是网页，底下其实是一套围绕 8800Pro 内存块逐步校验出来的专用工具。</p>
 
         <h4>更新日志</h4>
         <div className="changelog">
-          <p><strong>蓝牙流式写入</strong> 404.00857 这类乱码频率对应重复出现的 `57 addr 40` 写帧头，BLE 写频现在只用一次起始写命令进入写入状态，后续连续发送 64 字节数据块，避免每个信道块都混入地址头。</p>
-          <p><strong>蓝牙写频节奏修复</strong> 每个 64 字节块之间保留稳定间隔和 ACK 检查，对齐实机验证过的 CoreBluetooth 写入节奏，避免机器缓存来不及处理后产生乱码信道。</p>
-          <p><strong>FM 输入优化</strong> FM 收音机频率改成先输入草稿、离开输入框再写入，手动填写 88.7、107.5 这类频率不会再被中途打断。</p>
-          <p><strong>蓝牙空信道清理</strong> 空信道写回时统一写入干净的 FF 填充，避免机器把残留字节识别成 412.xxxxx 一类随机频率。</p>
-          <p><strong>频率输入优化</strong> 接收、发射和 VFO 频率支持自然手动输入，小数点和中间态不会再被提前格式化。</p>
-          <p><strong>BLE 写频稳定性</strong> 修正空信道块的默认填充值，蓝牙整机写频时不会把空白区域写成 00。</p>
+          <p><strong>回档到稳定蓝牙链路</strong> 蓝牙写频已退回到较早的稳定实现，撤销后续实验性的分包协议改动，避免继续扩大机器端乱码风险。</p>
+          <p><strong>技术实现说明</strong> 关于页新增协议摸索过程，记录本项目如何结合开源项目、官方软件、APK 线索和实机读回逐步实现读写频。</p>
           <p><strong>实时连接监测</strong> 设备断开后会自动切换成未连接状态，并在页面里直接提示。</p>
           <p><strong>关于页整理</strong> 把项目说明、免责声明、致谢和更新日志放到同一个文字页面里，便于查看。</p>
           <p><strong>部署分流</strong> 服务器版本保留备案号，GitHub Pages 版本默认不显示备案号，避免不同发布场景混在一起。</p>
@@ -1875,76 +1794,24 @@ function TextField({
   label,
   value,
   onChange,
-  onBlur,
   compact = false,
   hint,
   placeholder,
-  inputMode,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
-  onBlur?: (value: string) => void
   compact?: boolean
   hint?: string
   placeholder?: string
-  inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search'
 }) {
   return (
     <label className={`field ${compact ? 'compact' : ''}`}>
       <span>{label}</span>
-      <input
-        value={value}
-        placeholder={placeholder}
-        inputMode={inputMode}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={(event) => onBlur?.(event.target.value)}
-      />
+      <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
       {hint ? <small>{hint}</small> : null}
     </label>
   )
-}
-
-function sanitizeFrequencyDraft(value: string) {
-  const normalized = value.toUpperCase().replace(/\s/g, '').replace(/MHZ$/i, '')
-  let output = ''
-  let hasDot = false
-  for (const char of normalized) {
-    if (char >= '0' && char <= '9') {
-      if (!hasDot && output.length >= 3) continue
-      if (hasDot && output.split('.')[1]?.length >= 5) continue
-      output += char
-      continue
-    }
-    if (char === '.' && !hasDot) {
-      hasDot = true
-      output += char
-    }
-  }
-  return output
-}
-
-function sanitizeFmFrequencyDraft(value: string) {
-  const normalized = value.toUpperCase().replace(/\s/g, '').replace(/MHZ$/i, '')
-  let output = ''
-  let hasDot = false
-  for (const char of normalized) {
-    if (char >= '0' && char <= '9') {
-      if (!hasDot && output.length >= 3) continue
-      if (hasDot && output.split('.')[1]?.length >= 1) continue
-      output += char
-      continue
-    }
-    if (char === '.' && !hasDot) {
-      hasDot = true
-      output += char
-    }
-  }
-  return output
-}
-
-function formatFmFrequency(freq: number) {
-  return freq ? (freq / 10).toFixed(1) : ''
 }
 
 function SelectField<T extends readonly string[]>({
