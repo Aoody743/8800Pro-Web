@@ -11,6 +11,7 @@ import {
   encodeFmFrequency,
   encodeOffset,
   encodeVfoFrequency,
+  normalizeRadioFrequency,
 } from './frequency'
 import { decodeRadioText, encodeCallSign, encodeRadioText } from './text'
 import { decodeTone, encodeTone } from './tone'
@@ -205,9 +206,11 @@ function toBlockKey(address: number) {
 function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags = Boolean(base)) {
   const payload = base ? new Uint8Array(base) : new Uint8Array(32)
   if (!base) payload.fill(0xff)
-  if (!channel.rxFreq) return new Uint8Array(32).fill(0xff)
-  payload.set(encodeChannelFrequency(channel.rxFreq), 0)
-  payload.set(encodeChannelFrequency(channel.txFreq || channel.rxFreq), 4)
+  const rxFreq = normalizeRadioFrequency(channel.rxFreq)
+  const txFreq = normalizeRadioFrequency(channel.txFreq || channel.rxFreq)
+  if (!rxFreq || rxFreq !== channel.rxFreq || !txFreq) return new Uint8Array(32).fill(0xff)
+  payload.set(encodeChannelFrequency(rxFreq), 0)
+  payload.set(encodeChannelFrequency(txFreq), 4)
   payload.set(encodeTone(channel.rxTone), 8)
   payload.set(encodeTone(channel.txTone), 10)
   if (!preserveUnknownFlags || payload[12] % 20 !== channel.signalGroup) payload[12] = channel.signalGroup
@@ -219,11 +222,14 @@ function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags
 }
 
 function decodeChannel(payload: Uint8Array, id: number): Channel {
-  if (payload[0] === 0xff || payload[1] === 0xff || payload[3] === 0) return createEmptyChannel(id)
+  const rxFreq = decodeChannelFrequency(payload, 0)
+  if (payload[0] === 0xff || payload[1] === 0xff || payload[3] === 0 || !isUsableChannelFrequency(payload, 0, rxFreq)) {
+    return createEmptyChannel(id)
+  }
   const name = payload[20] !== 0xff ? decodeRadioText(payload, 20, 12) : ''
   return {
     id,
-    rxFreq: decodeChannelFrequency(payload, 0),
+    rxFreq,
     txFreq: payload[4] !== 0xff && payload[5] !== 0xff ? decodeChannelFrequency(payload, 4) : '',
     rxTone: decodeTone(payload, 8),
     txTone: decodeTone(payload, 10),
@@ -236,6 +242,13 @@ function decodeChannel(payload: Uint8Array, id: number): Channel {
     name,
     visible: true,
   }
+}
+
+function isUsableChannelFrequency(payload: Uint8Array, offset: number, frequency: string) {
+  for (let index = offset; index < offset + 4; index += 1) {
+    if ((payload[index] & 0x0f) > 9 || ((payload[index] >> 4) & 0x0f) > 9) return false
+  }
+  return normalizeRadioFrequency(frequency) === frequency
 }
 
 function setChannelByFlatIndex(data: AppData, flatIndex: number, channel: Channel) {

@@ -76,6 +76,15 @@ noisyEmptyChannelBlock.set([0xff, 0x56, 0x78, 0x41, 0x20, 0x00, 0x00, 0x00], 32)
 applyBlockToAppData(noisyEmptyChannelData, 0x0880, noisyEmptyChannelBlock)
 assert.deepEqual(Array.from(encodeBlockForAddress(noisyEmptyChannelData, 0x0880)), Array.from(new Uint8Array(64).fill(0xff)))
 
+const bogusFrequencyData = createDefaultAppData()
+const bogusFrequencyBlock = new Uint8Array(64).fill(0xff)
+bogusFrequencyBlock.set([0x57, 0x08, 0x00, 0x04], 0)
+bogusFrequencyBlock.set([0x57, 0x08, 0x04, 0x04], 32)
+applyBlockToAppData(bogusFrequencyData, 0x0880, bogusFrequencyBlock)
+assert.equal(bogusFrequencyData.channels[1][4].rxFreq, '')
+assert.equal(bogusFrequencyData.channels[1][5].rxFreq, '')
+assert.deepEqual(Array.from(encodeBlockForAddress(bogusFrequencyData, 0x0880)), Array.from(new Uint8Array(64).fill(0xff)))
+
 const newChannelWithoutRaw = createDefaultAppData()
 newChannelWithoutRaw.channels[0][0] = {
   ...newChannelWithoutRaw.channels[0][0],
@@ -88,6 +97,15 @@ newChannelWithoutRaw.channels[0][0] = {
 const newChannelWithoutRawBlock = encodeBlockForAddress(newChannelWithoutRaw, 0)
 assert.equal(newChannelWithoutRawBlock[12], 15)
 assert.equal(newChannelWithoutRawBlock[13], 3)
+
+const invalidVisibleChannel = createDefaultAppData()
+invalidVisibleChannel.channels[0][0] = {
+  ...invalidVisibleChannel.channels[0][0],
+  visible: true,
+  rxFreq: '404.00857',
+  txFreq: '404.00857',
+}
+assert.deepEqual(Array.from(encodeBlockForAddress(invalidVisibleChannel, 0).slice(0, 32)), Array.from(new Uint8Array(32).fill(0xff)))
 
 const vfoSource = createDefaultAppData()
 vfoSource.vfos.vfoAFreq = '145.50000'

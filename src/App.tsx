@@ -1340,11 +1340,18 @@ function DtmfPanel({ data, setData }: DataPanelProps) {
 
 function FmPanel({ data, setData }: DataPanelProps) {
   const [showTips, setShowTips] = useState(false)
-  function updateChannel(index: number, value: string) {
-    const parsed = Math.round(Number(value) * 10)
+  function updateCurrent(value: number) {
     setData((current) => {
       const next = cloneAppData(current)
-      next.fm.channels[index] = Number.isFinite(parsed) ? parsed : 0
+      next.fm.currentFreq = value
+      next.updatedAt = new Date().toISOString()
+      return next
+    })
+  }
+  function updateChannel(index: number, value: number) {
+    setData((current) => {
+      const next = cloneAppData(current)
+      next.fm.channels[index] = value
       next.updatedAt = new Date().toISOString()
       return next
     })
@@ -1361,17 +1368,10 @@ function FmPanel({ data, setData }: DataPanelProps) {
             <input type="checkbox" checked={showTips} onChange={(event) => setShowTips(event.target.checked)} />
             显示填写提示
           </label>
-          <TextField
+          <FmFrequencyField
             label="当前频率"
-            value={(data.fm.currentFreq / 10).toFixed(1)}
-            onChange={(value) =>
-              setData((current) => {
-                const next = cloneAppData(current)
-                next.fm.currentFreq = Math.round(Number(value) * 10)
-                next.updatedAt = new Date().toISOString()
-                return next
-              })
-            }
+            freq={data.fm.currentFreq}
+            onCommit={updateCurrent}
             compact
           />
         </div>
@@ -1384,16 +1384,66 @@ function FmPanel({ data, setData }: DataPanelProps) {
       ) : null}
       <div className="fm-grid">
         {data.fm.channels.map((freq, index) => (
-          <TextField
+          <FmFrequencyField
             key={index}
             label={`FM ${index + 1}`}
-            value={freq ? (freq / 10).toFixed(1) : ''}
+            freq={freq}
             hint={showTips ? '填写广播频率，单位 MHz，例如 88.7。' : undefined}
-            onChange={(value) => updateChannel(index, value)}
+            allowEmpty
+            onCommit={(value) => updateChannel(index, value)}
           />
         ))}
       </div>
     </section>
+  )
+}
+
+function FmFrequencyField({
+  label,
+  freq,
+  onCommit,
+  allowEmpty = false,
+  compact = false,
+  hint,
+}: {
+  label: string
+  freq: number
+  onCommit: (value: number) => void
+  allowEmpty?: boolean
+  compact?: boolean
+  hint?: string
+}) {
+  const [draft, setDraft] = useState(() => formatFmFrequency(freq))
+  useEffect(() => {
+    setDraft(formatFmFrequency(freq))
+  }, [freq])
+
+  function commit(value: string) {
+    const parsed = Number(value)
+    if (allowEmpty && value.trim() === '') {
+      onCommit(0)
+      setDraft('')
+      return
+    }
+    if (Number.isFinite(parsed) && parsed >= 65 && parsed <= 108) {
+      const next = Math.round(parsed * 10)
+      onCommit(next)
+      setDraft(formatFmFrequency(next))
+      return
+    }
+    setDraft(formatFmFrequency(freq))
+  }
+
+  return (
+    <TextField
+      label={label}
+      value={draft}
+      compact={compact}
+      hint={hint}
+      inputMode="decimal"
+      onChange={(value) => setDraft(sanitizeFmFrequencyDraft(value))}
+      onBlur={commit}
+    />
   )
 }
 
@@ -1768,6 +1818,8 @@ function AboutPanel() {
 
         <h4>更新日志</h4>
         <div className="changelog">
+          <p><strong>非法频率清理</strong> 读频和写频都会过滤 404.00857 这类不符合机器步进的残留频率，避免蓝牙写频后空位变成未命名信道。</p>
+          <p><strong>FM 输入优化</strong> FM 收音机频率改成先输入草稿、离开输入框再写入，手动填写 88.7、107.5 这类频率不会再被中途打断。</p>
           <p><strong>蓝牙空信道清理</strong> 空信道写回时统一写入干净的 FF 填充，避免机器把残留字节识别成 412.xxxxx 一类随机频率。</p>
           <p><strong>频率输入优化</strong> 接收、发射和 VFO 频率支持自然手动输入，小数点和中间态不会再被提前格式化。</p>
           <p><strong>BLE 写频稳定性</strong> 修正空信道块的默认填充值，蓝牙整机写频时不会把空白区域写成 00。</p>
@@ -1869,6 +1921,29 @@ function sanitizeFrequencyDraft(value: string) {
     }
   }
   return output
+}
+
+function sanitizeFmFrequencyDraft(value: string) {
+  const normalized = value.toUpperCase().replace(/\s/g, '').replace(/MHZ$/i, '')
+  let output = ''
+  let hasDot = false
+  for (const char of normalized) {
+    if (char >= '0' && char <= '9') {
+      if (!hasDot && output.length >= 3) continue
+      if (hasDot && output.split('.')[1]?.length >= 1) continue
+      output += char
+      continue
+    }
+    if (char === '.' && !hasDot) {
+      hasDot = true
+      output += char
+    }
+  }
+  return output
+}
+
+function formatFmFrequency(freq: number) {
+  return freq ? (freq / 10).toFixed(1) : ''
 }
 
 function SelectField<T extends readonly string[]>({
