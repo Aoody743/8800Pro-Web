@@ -185,6 +185,7 @@ class BluetoothWriteTransport implements RadioTransport {
   readonly label = 'ble-write'
   readonly writes: Uint8Array[] = []
   readonly configs: Array<{ packetSize?: number; writeMode?: 'with-response' | 'without-response'; interChunkDelayMs?: number }> = []
+  ackReads = 0
   private queue: number[] = []
   private writeFrameCount = 0
 
@@ -222,7 +223,9 @@ class BluetoothWriteTransport implements RadioTransport {
       if (Date.now() - started > timeoutMs) throw new Error('timeout')
       await new Promise((resolve) => setTimeout(resolve, 1))
     }
-    return new Uint8Array(this.queue.splice(0, length))
+    const result = new Uint8Array(this.queue.splice(0, length))
+    if (length === 1 && result[0] === 0x06) this.ackReads += 1
+    return result
   }
 }
 
@@ -237,12 +240,13 @@ bluetoothWriteData.channels[0][0] = {
 }
 const blePayload = encodeBlockForAddress(bluetoothWriteData, 0)
 assert.equal(blePayload.length, 64)
-await assert.rejects(
-  () => new Shx8800ProSession(bluetoothWriteTransport).writeRadio(bluetoothWriteData),
-  /蓝牙写频已临时锁定/,
-)
+await new Shx8800ProSession(bluetoothWriteTransport, { bluetoothWritePairDelayMs: 0, bluetoothAckSettleMs: 0 }).writeRadio(bluetoothWriteData)
 const bleWrites = bluetoothWriteTransport.writes.filter((write) => write[0] === 0x57)
-assert.equal(bleWrites.length, 0)
+assert.equal(bleWrites.length, getShx8800ProReadWriteAddresses().length)
+assert.equal(bleWrites.every((write) => write.length === SHX8800PRO.frameBytes), true)
+assert.deepEqual(Array.from(bleWrites[0].slice(0, 4)), [0x57, 0x00, 0x00, 0x40])
+assert.deepEqual(Array.from(bleWrites[1].slice(0, 4)), [0x57, 0x00, 0x40, 0x40])
+assert.equal(bluetoothWriteTransport.ackReads, 1 + Math.ceil(bleWrites.length / 2))
 
 const rawPreserveData = createDefaultAppData()
 const rawFunction = new Uint8Array(64)

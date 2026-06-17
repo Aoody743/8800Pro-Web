@@ -195,12 +195,6 @@ function App() {
   async function performWriteRadio() {
     if (!transport) return
     await withBusy(async () => {
-      if (transport.kind === 'bluetooth') {
-        const message = '蓝牙写频已临时锁定：实机验证发现 FFE1 会把写入帧头落进信道数据，可能生成 404.xxxxx 乱码。请先用 USB 写频线写回。'
-        setNotice({ tone: 'warn', text: message })
-        addLog(message)
-        return
-      }
       await saveBackup(data, '写频前自动备份')
       await refreshBackups()
       const abort = new AbortController()
@@ -211,8 +205,8 @@ function App() {
         onProgress: setProgress,
       })
       await session.writeRadio(data)
-      setNotice({ tone: 'ok', text: 'USB 写频完成。建议再点一次“读频”确认机器内容。' })
-      addLog('USB 写频完成')
+      setNotice({ tone: 'ok', text: `${transport.kind === 'bluetooth' ? '蓝牙' : 'USB'} 写频完成。建议再点一次“读频”确认机器内容。` })
+      addLog(`${transport.kind === 'bluetooth' ? '蓝牙' : 'USB'} 写频完成`)
       setBaselineData(cloneAppData(data))
     })
   }
@@ -562,11 +556,11 @@ function Dashboard({
 }) {
   const occupiedBanks = data.channels.map((bank) => bank.filter((channel) => channel.visible).length)
   const quickStartSteps = [
-    ['1. 连接设备', '第一次建议优先用 USB。蓝牙可用于读频；写频已临时锁定，避免已知的 FFE1 帧头污染。', '直接点右上角 USB 或 蓝牙。'],
+    ['1. 连接设备', '第一次建议先读频并自动备份。USB 和蓝牙都可读写，蓝牙会按完整 68 字节帧写入。', '直接点右上角 USB 或 蓝牙。'],
     ['2. 先点读频', '把手台里原本的数据读出来，系统会自动留原机备份。', '读频完成后再修改。'],
     ['3. 去信道页改内容', '新手最常用的是信道名称、接收频率、发射频率、亚音。', '不会的字段先保持默认。'],
     ['4. 先试一个信道', '先只改 1 个信道测试，确认设备工作正常。', '没问题后再批量修改。'],
-    ['5. 写回并验证', '点“写频”把当前内容写回手台。当前请使用 USB 写频线完成写回。', '不满意就去文件页恢复备份。'],
+    ['5. 写回并验证', '点“写频”把当前内容写回手台。写完后再读频确认一次。', '不满意就去文件页恢复备份。'],
   ] as const
   return (
     <div className="dashboard-grid">
@@ -1463,7 +1457,7 @@ function BootImagePanel({
           <span>尺寸 <strong>{SHX8800PRO.bootImageWidth}×{SHX8800PRO.bootImageHeight}</strong></span>
           <span>格式 <strong>RGB565 LE</strong></span>
           <span>数据 <strong>{data.bootImage?.rgb565?.length ?? 0} bytes</strong></span>
-          <span>链路 <strong>{transportKind === 'bluetooth' ? '蓝牙暂停' : transportKind === 'serial' ? 'USB' : '未连接'}</strong></span>
+          <span>链路 <strong>{transportKind === 'bluetooth' ? '蓝牙' : transportKind === 'serial' ? 'USB' : '未连接'}</strong></span>
         </div>
         <button type="button" className="primary-button warn" onClick={onWrite} disabled={busy || !canWrite}>
           <Upload size={18} />
@@ -1773,12 +1767,14 @@ function AboutPanel() {
         <h4>技术实现</h4>
         <p>8800Pro Web 的写频链路不是照着一份完整文档做出来的，而是一步步从开源项目、官方写频软件、APK 行为和真实机器响应里拼出来的。最开始先借助社区项目确认信道、VFO、功能设置、DTMF、区域名称和 FM 收音机大概落在哪些地址，再把这些规则整理成浏览器里可测试的 TypeScript 编解码器。</p>
         <p>线写频部分相对清晰一些：通过 USB 串口反复对照握手、读块、写块和结束指令，确认 `PROGRAMSHXPU`、ACK、`52 addr 40` 读帧、`57 addr 40` 写帧和 64 字节数据区的关系。页面读频时会保存原始块，写回时只改已经识别的字段，尽量保留暂时没完全命名的机器设置。</p>
-        <p>蓝牙写频则更像实机摸索：先确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索和手台读回内容逐块比对。最新实机验证发现，FFE1 对 `57 addr 40` 写帧会 ACK，但会把帧头落进信道数据区，机器端就会出现 `404.00657`、`412.00757` 这类乱码频率；因此网页当前临时锁定蓝牙写频，只保留蓝牙读频和 USB 写回，直到确认真正的 BLE 写块协议。</p>
+        <p>蓝牙写频则更像实机摸索：先确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索、官方 iOS 应用的 RadioKit 框架和手台读回内容逐块比对。最关键的一步，是发现乱码频率并不是 FFE1 本身不能写，而是浏览器把 `57 addr 40 + 64 字节` 写频帧拆成 18 字节小包后，机器会把后续碎片当成数据落进信道区，于是出现 `404.00657`、`412.00757` 这类带 `57` 痕迹的频率。现在蓝牙写频会把每个 68 字节帧作为一次 GATT 写入发送，并按官方行为相邻两块等待一次 ACK。</p>
         <p>这些经验现在都沉到协议层和测试里：频率、中文信道名、亚音、VFO、功能设置、开机图限制、空信道填充和蓝牙基础写入都会被覆盖。界面看起来是网页，底下其实是一套围绕 8800Pro 内存块逐步校验出来的专用工具。</p>
 
         <h4>更新日志</h4>
         <div className="changelog">
-          <p><strong>回档到稳定蓝牙链路</strong> 蓝牙写频已退回到较早的稳定实现，撤销后续实验性的分包协议改动，避免继续扩大机器端乱码风险。</p>
+          <p><strong>修复蓝牙写频帧污染</strong> 确认蓝牙写频必须单次写入完整 68 字节帧，并且相邻两块共用一次 ACK；网页已停止 18 字节拆包，避免 `57 addr 40` 帧头落入信道数据。</p>
+          <p><strong>官方链路对照</strong> 通过官方 iOS 应用的 RadioKit 框架和本地 CoreBluetooth 实机测试，确认 8800Pro 读写频主链路仍走 FFE1，FF31/FF32 不是普通读写块的替代通道。</p>
+          <p><strong>回读保护</strong> 蓝牙写频完成后建议立即读频，页面会继续保留写频前自动备份，方便发现异常时回退。</p>
           <p><strong>锁定有风险的蓝牙写频</strong> 实机确认 FFE1 写帧会把 `57 addr 40` 帧头写入空信道，当前网页阻止蓝牙写回，避免继续生成 404/412 乱码频率。</p>
           <p><strong>空信道清理</strong> 读到已被帧头污染的空信道时，会在页面中按空信道处理；再次通过 USB 写回时会编码为全 `FF` 空槽。</p>
           <p><strong>技术实现说明</strong> 关于页新增协议摸索过程，记录本项目如何结合开源项目、官方软件、APK 线索和实机读回逐步实现读写频。</p>

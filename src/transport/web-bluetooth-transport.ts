@@ -7,7 +7,7 @@ export class WebBluetoothTransport implements RadioTransport {
   private device?: BluetoothDevice
   private characteristic?: BluetoothRemoteGATTCharacteristic
   private queue = new ByteQueue()
-  private packetSize = 18
+  private packetSize = 512
   private interChunkDelayMs = 20
   private writeMode: 'with-response' | 'without-response' = 'with-response'
   private connected = false
@@ -48,6 +48,11 @@ export class WebBluetoothTransport implements RadioTransport {
 
   async write(data: Uint8Array) {
     if (!this.characteristic) throw new Error('蓝牙未连接')
+    if (isMemoryWriteFrame(data)) {
+      await this.writeChunk(data)
+      if (this.interChunkDelayMs > 0) await sleep(this.interChunkDelayMs)
+      return
+    }
     let offset = 0
     while (offset < data.length) {
       const chunk = data.slice(offset, offset + this.packetSize)
@@ -134,4 +139,8 @@ function toBufferSource(bytes: Uint8Array): BufferSource {
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
   return copy.buffer as ArrayBuffer
+}
+
+function isMemoryWriteFrame(data: Uint8Array) {
+  return data.length === SHX8800PRO.frameBytes && data[0] === 0x57 && data[3] === SHX8800PRO.framePayloadBytes
 }

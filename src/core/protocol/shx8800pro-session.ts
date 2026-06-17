@@ -16,6 +16,8 @@ export interface SessionOptions {
   onProgress?: (progress: SessionProgress) => void
   onLog?: (line: string) => void
   signal?: AbortSignal
+  bluetoothWritePairDelayMs?: number
+  bluetoothAckSettleMs?: number
 }
 
 export class Shx8800ProSession {
@@ -48,7 +50,8 @@ export class Shx8800ProSession {
   async writeRadio(data: AppData) {
     this.assertNotAborted()
     if (this.transport.kind === 'bluetooth') {
-      throw new Error('蓝牙写频已临时锁定：实机验证发现 FFE1 会把写入帧头落进信道数据，请先使用 USB 写频线写回。')
+      await this.writeRadioBluetooth(data)
+      return
     }
     await this.handshake()
     const blocks = getWriteBlocks(data)
@@ -57,6 +60,30 @@ export class Shx8800ProSession {
       const block = blocks[index]
       this.progress('write', block.address, Math.round((index / blocks.length) * 100))
       await this.writeBlock(block.address, block.payload)
+    }
+    await this.transport.write(new Uint8Array([0x45]))
+    this.progress('done', undefined, 100)
+  }
+
+  private async writeRadioBluetooth(data: AppData) {
+    await this.handshake()
+    const blocks = getWriteBlocks(data)
+    for (let index = 0; index < blocks.length; index += 2) {
+      this.assertNotAborted()
+      const first = blocks[index]
+      const second = blocks[index + 1]
+      this.progress('write', first.address, Math.round((index / blocks.length) * 100))
+      await this.writeBlockNoAck(first.address, first.payload)
+      if (second) {
+        await sleep(this.options.bluetoothWritePairDelayMs ?? 220)
+        this.progress('write', second.address, Math.round(((index + 1) / blocks.length) * 100))
+        await this.writeBlockNoAck(second.address, second.payload)
+      }
+      await this.readAck(
+        second ? `蓝牙写入失败：${addressLabel(first.address)} / ${addressLabel(second.address)}` : `蓝牙写入失败：${addressLabel(first.address)}`,
+        6000,
+      )
+      await sleep(this.options.bluetoothAckSettleMs ?? 80)
     }
     await this.transport.write(new Uint8Array([0x45]))
     this.progress('done', undefined, 100)
@@ -112,6 +139,12 @@ export class Shx8800ProSession {
       }
     }
     throw new Error(`写入失败：${addressLabel(address)}`)
+  }
+
+  private async writeBlockNoAck(address: number, payload: Uint8Array) {
+    const frame = buildWriteFrame(address, payload)
+    await this.transport.write(frame)
+    this.log(`TX BLE WRITE ${addressLabel(address)} ${hex(frame.slice(0, 8))} ...`)
   }
 
   private async readAck(message: string, timeoutMs: number) {
