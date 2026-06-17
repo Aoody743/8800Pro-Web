@@ -61,6 +61,27 @@ assert.equal(channelRoundtrip.target.channels[0][0].txTone, 'D023N')
 assert.equal(channelRoundtrip.target.channels[0][0].name, '测试01')
 assert.equal(channelRoundtrip.target.channels[0][1].rxFreq, '440.62500')
 
+const emptyChannelBlock = encodeBlockForAddress(createDefaultAppData(), 0x0880)
+assert.deepEqual(Array.from(emptyChannelBlock), Array.from(new Uint8Array(64).fill(0xff)))
+
+const rawEmptyChannelData = createDefaultAppData()
+const rawEmptyChannelBlock = new Uint8Array(64).fill(0xff)
+applyBlockToAppData(rawEmptyChannelData, 0x0880, rawEmptyChannelBlock)
+assert.deepEqual(Array.from(encodeBlockForAddress(rawEmptyChannelData, 0x0880)), Array.from(rawEmptyChannelBlock))
+
+const newChannelWithoutRaw = createDefaultAppData()
+newChannelWithoutRaw.channels[0][0] = {
+  ...newChannelWithoutRaw.channels[0][0],
+  visible: true,
+  rxFreq: '145.50000',
+  txFreq: '145.50000',
+  signalGroup: 15,
+  pttid: 3,
+}
+const newChannelWithoutRawBlock = encodeBlockForAddress(newChannelWithoutRaw, 0)
+assert.equal(newChannelWithoutRawBlock[12], 15)
+assert.equal(newChannelWithoutRawBlock[13], 3)
+
 const vfoSource = createDefaultAppData()
 vfoSource.vfos.vfoAFreq = '145.50000'
 vfoSource.vfos.vfoBFreq = '440.62500'

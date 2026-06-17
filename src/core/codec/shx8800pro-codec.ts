@@ -18,14 +18,16 @@ import { decodeTone, encodeTone } from './tone'
 const DTMF_CHARS = '0123456789ABCD*#'
 
 export function encodeBlockForAddress(data: AppData, address: number) {
-  const payload = getBasePayload(data, address)
-
   if (address < 0x4000) {
+    const hasRaw = hasRawBlock(data, address)
+    const payload = getBasePayload(data, address, 0xff)
     const firstChannelIndex = Math.floor(address / 64) * 2
-    payload.set(encodeChannel(data.channels[Math.floor(firstChannelIndex / 64)][firstChannelIndex % 64], payload.slice(0, 32)), 0)
-    payload.set(encodeChannel(data.channels[Math.floor((firstChannelIndex + 1) / 64)][(firstChannelIndex + 1) % 64], payload.slice(32, 64)), 32)
+    payload.set(encodeChannel(data.channels[Math.floor(firstChannelIndex / 64)][firstChannelIndex % 64], payload.slice(0, 32), hasRaw), 0)
+    payload.set(encodeChannel(data.channels[Math.floor((firstChannelIndex + 1) / 64)][(firstChannelIndex + 1) % 64], payload.slice(32, 64), hasRaw), 32)
     return payload
   }
+
+  const payload = getBasePayload(data, address)
 
   if (address === SHX8800PRO.vfoAddress) {
     payload.set(encodeVfo(data.vfos, 'A', payload.slice(0, 32)), 0)
@@ -186,17 +188,21 @@ export function getWriteBlocks(data: AppData) {
   }))
 }
 
-function getBasePayload(data: AppData, address: number) {
+function getBasePayload(data: AppData, address: number, fillValue = 0x00) {
   const raw = data.rawBlocks?.[toBlockKey(address)]
   if (raw?.length === SHX8800PRO.framePayloadBytes) return Uint8Array.from(raw)
-  return new Uint8Array(SHX8800PRO.framePayloadBytes)
+  return new Uint8Array(SHX8800PRO.framePayloadBytes).fill(fillValue)
+}
+
+function hasRawBlock(data: AppData, address: number) {
+  return data.rawBlocks?.[toBlockKey(address)]?.length === SHX8800PRO.framePayloadBytes
 }
 
 function toBlockKey(address: number) {
   return address.toString(16).toUpperCase().padStart(4, '0')
 }
 
-function encodeChannel(channel: Channel, base?: Uint8Array) {
+function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags = Boolean(base)) {
   const payload = base ? new Uint8Array(base) : new Uint8Array(32)
   if (!base) payload.fill(0xff)
   if (!channel.rxFreq) return payload
@@ -204,10 +210,10 @@ function encodeChannel(channel: Channel, base?: Uint8Array) {
   payload.set(encodeChannelFrequency(channel.txFreq || channel.rxFreq), 4)
   payload.set(encodeTone(channel.rxTone), 8)
   payload.set(encodeTone(channel.txTone), 10)
-  if (!base || base[12] % 20 !== channel.signalGroup) payload[12] = channel.signalGroup
-  if (!base || base[13] % 4 !== channel.pttid) payload[13] = channel.pttid
+  if (!preserveUnknownFlags || payload[12] % 20 !== channel.signalGroup) payload[12] = channel.signalGroup
+  if (!preserveUnknownFlags || payload[13] % 4 !== channel.pttid) payload[13] = channel.pttid
   payload[14] = channel.txPower
-  payload[15] = (channel.bandwidth << 6) | (channel.busyLock << 3) | (channel.scanAdd << 2)
+  payload[15] = (preserveUnknownFlags ? payload[15] & 0x03 : 0) | (channel.bandwidth << 6) | (channel.busyLock << 3) | (channel.scanAdd << 2)
   payload.set(encodeRadioText(channel.name, 12), 20)
   return payload
 }

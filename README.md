@@ -1,35 +1,93 @@
-# 8800Pro Web
+# 8800Pro Web 写频工具
 
-Web programmer for the Senhaix 8800Pro, built with React, Vite, and TypeScript.
+8800Pro Web 是一款面向森海克斯 8800Pro 的浏览器写频工具，使用 React、Vite 和 TypeScript 构建。它把常用信道、区域、VFO、功能菜单、DTMF、FM 收音机、卫星预设、备份导入导出等操作放到一个网页里，尽量减少传统写频软件的安装和平台限制。
 
-## Features
+## 在线使用
 
-- Read and write channels and settings over USB serial or Bluetooth Low Energy
-- Write 8800Pro boot images over USB serial
-- Bluetooth boot-image writing is currently disabled while the device-safe link is still being verified
-- New-user friendly workflow with guided pages and inline help
-- GitHub Pages friendly build with relative asset paths
+- GitHub Pages：适合公开访问和日常快速使用。
+- 自建服务器：适合国内访问场景，服务器版本会显示 ICP 与公安备案号。
 
-## Local development
+浏览器建议使用 Chrome、Edge、Arc 等 Chromium 系浏览器。Web Bluetooth 和 Web Serial 都要求安全上下文：线上站点需要 HTTPS，本地调试可以使用 `http://localhost`。
+
+## 主要功能
+
+- 通过 USB 写频线读取和写入 8800Pro。
+- 通过蓝牙 BLE 读取和写入频率数据。
+- 编辑 8 个区域、512 个信道、VFO A/B、功能设置、DTMF 与 FM 收音机。
+- 支持中继库、卫星模式、Excel/CSV/JSON 导入导出和本地备份。
+- 支持 USB 写入 128 x 128 RGB565 开机图。
+- 蓝牙写开机图暂未开放，当前请使用 USB 写频线完成开机图写入。
+
+## 写频建议
+
+1. 先读频，再修改，再写频。
+2. 写频前保存一份 JSON 备份，方便回滚。
+3. 蓝牙写频时保持设备电量充足，并让电脑和机器尽量靠近。
+4. 如果浏览器提示蓝牙不可用，确认页面是 HTTPS 或 `localhost`，并使用 Chromium 系浏览器。
+5. 如果设备中途断开，重新连接后先读频确认机器内数据，再决定是否继续写入。
+
+## 本地开发
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-## Build
+默认开发地址：
 
-```bash
-pnpm build
+```text
+http://localhost:5173/
 ```
 
-For the self-hosted server version with the备案号 footer, use:
+常用命令：
+
+```bash
+pnpm test
+pnpm build
+pnpm build:server
+```
+
+`pnpm build` 用于 GitHub Pages 等普通静态部署；`pnpm build:server` 用于自建服务器版本，会保留页面里的备案号显示。
+
+## 部署说明
+
+### GitHub Pages
+
+仓库内置 GitHub Actions 工作流：
+
+```text
+.github/workflows/deploy-pages.yml
+```
+
+推送到 `main` 或手动触发 workflow 后，会执行 `pnpm build` 并部署到 GitHub Pages。这个版本默认不显示备案号，避免和自建服务器的合规信息混用。
+
+### 自建服务器
+
+自建服务器部署请使用：
 
 ```bash
 pnpm build:server
 ```
 
-## GitHub Pages
+构建产物位于 `dist/`。服务器版本会显示：
 
-This repository includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml`.
-To deploy the site on GitHub Pages, enable Pages for the repository and set the source to GitHub Actions.
+- 粤ICP备2023143201号
+- 粤公网安备44011302005027号
+
+## 技术栈
+
+- React 19
+- TypeScript
+- Vite
+- Web Serial API
+- Web Bluetooth API
+- IndexedDB 本地备份
+- xlsx 导入导出
+
+## 致谢
+
+本项目在协议理解和功能实现过程中参考了社区项目与资料，尤其感谢 `SydneyOwl/senhaix-freq-writer-enhanced` 对森海克斯写频生态的探索。
+
+## 免责声明
+
+写频会直接修改设备内存数据。请确认频率、亚音、功率、带宽等参数符合当地无线电管理规定，并在写入前做好备份。因错误配置、连接中断或不当使用造成的数据丢失、设备异常或合规风险，需要由使用者自行承担。
