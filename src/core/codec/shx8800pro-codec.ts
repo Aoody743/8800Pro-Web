@@ -203,23 +203,24 @@ function toBlockKey(address: number) {
 }
 
 function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags = Boolean(base)) {
-  const payload = base ? new Uint8Array(base) : new Uint8Array(32)
-  if (!base) payload.fill(0xff)
-  if (!channel.rxFreq) return payload
+  const baseIsUsable = Boolean(base) && !isBleFrameHeaderPollutedChannel(base!)
+  const payload = baseIsUsable && base ? new Uint8Array(base) : new Uint8Array(32)
+  if (!baseIsUsable) payload.fill(0xff)
+  if (!channel.rxFreq) return new Uint8Array(32).fill(0xff)
   payload.set(encodeChannelFrequency(channel.rxFreq), 0)
   payload.set(encodeChannelFrequency(channel.txFreq || channel.rxFreq), 4)
   payload.set(encodeTone(channel.rxTone), 8)
   payload.set(encodeTone(channel.txTone), 10)
-  if (!preserveUnknownFlags || payload[12] % 20 !== channel.signalGroup) payload[12] = channel.signalGroup
-  if (!preserveUnknownFlags || payload[13] % 4 !== channel.pttid) payload[13] = channel.pttid
+  if (!baseIsUsable || !preserveUnknownFlags || payload[12] % 20 !== channel.signalGroup) payload[12] = channel.signalGroup
+  if (!baseIsUsable || !preserveUnknownFlags || payload[13] % 4 !== channel.pttid) payload[13] = channel.pttid
   payload[14] = channel.txPower
-  payload[15] = (preserveUnknownFlags ? payload[15] & 0x03 : 0) | (channel.bandwidth << 6) | (channel.busyLock << 3) | (channel.scanAdd << 2)
+  payload[15] = (baseIsUsable && preserveUnknownFlags ? payload[15] & 0x03 : 0) | (channel.bandwidth << 6) | (channel.busyLock << 3) | (channel.scanAdd << 2)
   payload.set(encodeRadioText(channel.name, 12), 20)
   return payload
 }
 
 function decodeChannel(payload: Uint8Array, id: number): Channel {
-  if (payload[0] === 0xff || payload[1] === 0xff || payload[3] === 0) return createEmptyChannel(id)
+  if (payload[0] === 0xff || payload[1] === 0xff || payload[3] === 0 || isBleFrameHeaderPollutedChannel(payload)) return createEmptyChannel(id)
   const name = payload[20] !== 0xff ? decodeRadioText(payload, 20, 12) : ''
   return {
     id,
@@ -236,6 +237,10 @@ function decodeChannel(payload: Uint8Array, id: number): Channel {
     name,
     visible: true,
   }
+}
+
+function isBleFrameHeaderPollutedChannel(payload: Uint8Array) {
+  return payload.length >= 4 && payload[0] === 0x57 && payload[3] === 0x40
 }
 
 function setChannelByFlatIndex(data: AppData, flatIndex: number, channel: Channel) {

@@ -69,6 +69,21 @@ const rawEmptyChannelBlock = new Uint8Array(64).fill(0xff)
 applyBlockToAppData(rawEmptyChannelData, 0x0880, rawEmptyChannelBlock)
 assert.deepEqual(Array.from(encodeBlockForAddress(rawEmptyChannelData, 0x0880)), Array.from(rawEmptyChannelBlock))
 
+const zeroEmptyChannelData = createDefaultAppData()
+const zeroEmptyChannelBlock = new Uint8Array(64)
+applyBlockToAppData(zeroEmptyChannelData, 0x0880, zeroEmptyChannelBlock)
+assert.equal(zeroEmptyChannelData.channels[1][4].visible, false)
+assert.deepEqual(Array.from(encodeBlockForAddress(zeroEmptyChannelData, 0x0880)), Array.from(new Uint8Array(64).fill(0xff)))
+
+const pollutedChannelData = createDefaultAppData()
+const pollutedChannelBlock = new Uint8Array(64).fill(0xff)
+pollutedChannelBlock.set([0x57, 0x06, 0x40, 0x40], 0)
+pollutedChannelBlock.set([0x57, 0x06, 0x80, 0x40], 32)
+applyBlockToAppData(pollutedChannelData, 0x0640, pollutedChannelBlock)
+assert.equal(pollutedChannelData.channels[0][50].visible, false)
+assert.equal(pollutedChannelData.channels[0][51].visible, false)
+assert.deepEqual(Array.from(encodeBlockForAddress(pollutedChannelData, 0x0640)), Array.from(new Uint8Array(64).fill(0xff)))
+
 const newChannelWithoutRaw = createDefaultAppData()
 newChannelWithoutRaw.channels[0][0] = {
   ...newChannelWithoutRaw.channels[0][0],
@@ -216,15 +231,13 @@ bluetoothWriteData.channels[0][0] = {
   name: 'BLE-1',
 }
 const blePayload = encodeBlockForAddress(bluetoothWriteData, 0)
-await new Shx8800ProSession(bluetoothWriteTransport).writeRadio(bluetoothWriteData)
+assert.equal(blePayload.length, 64)
+await assert.rejects(
+  () => new Shx8800ProSession(bluetoothWriteTransport).writeRadio(bluetoothWriteData),
+  /蓝牙写频已临时锁定/,
+)
 const bleWrites = bluetoothWriteTransport.writes.filter((write) => write[0] === 0x57)
-assert.equal(bleWrites.length, getShx8800ProReadWriteAddresses().length)
-assert.equal(bleWrites[0].length, 68)
-assert.equal(bleWrites[1].length, 68)
-assert.deepEqual(Array.from(bleWrites[0].slice(0, 4)), [0x57, 0x00, 0x00, 0x40])
-assert.deepEqual(Array.from(bleWrites[1].slice(0, 4)), [0x57, 0x00, 0x40, 0x40])
-assert.deepEqual(Array.from(bleWrites[0].slice(4)), Array.from(blePayload))
-assert.equal(bluetoothWriteTransport.configs.some((config) => config.packetSize === 18 && config.writeMode === 'with-response' && config.interChunkDelayMs === 20), true)
+assert.equal(bleWrites.length, 0)
 
 const rawPreserveData = createDefaultAppData()
 const rawFunction = new Uint8Array(64)

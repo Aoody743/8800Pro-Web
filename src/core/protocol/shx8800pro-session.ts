@@ -47,15 +47,11 @@ export class Shx8800ProSession {
 
   async writeRadio(data: AppData) {
     this.assertNotAborted()
+    if (this.transport.kind === 'bluetooth') {
+      throw new Error('蓝牙写频已临时锁定：实机验证发现 FFE1 会把写入帧头落进信道数据，请先使用 USB 写频线写回。')
+    }
     await this.handshake()
     const blocks = getWriteBlocks(data)
-    if (this.transport.kind === 'bluetooth') {
-      await this.writeBluetoothBlockPairs(blocks)
-      await this.transport.write(new Uint8Array([0x45]))
-      await this.readAck('蓝牙结束写频失败：未收到 ACK', 5000).catch(() => undefined)
-      this.progress('done', undefined, 100)
-      return
-    }
     for (let index = 0; index < blocks.length; index += 1) {
       this.assertNotAborted()
       const block = blocks[index]
@@ -118,37 +114,6 @@ export class Shx8800ProSession {
     throw new Error(`写入失败：${addressLabel(address)}`)
   }
 
-  private async writeBluetoothBlockPairs(blocks: Array<{ address: number; payload: Uint8Array }>) {
-    for (let index = 0; index < blocks.length; index += 2) {
-      this.assertNotAborted()
-      const first = blocks[index]
-      const second = blocks[index + 1]
-      this.progress('write', first.address, Math.round((index / blocks.length) * 100))
-      await this.writeBluetoothFrame(first.address, first.payload)
-      if (second) {
-        this.progress('write', second.address, Math.round(((index + 1) / blocks.length) * 100))
-        await this.writeBluetoothFrame(second.address, second.payload)
-      }
-      try {
-        await this.readAck(`蓝牙写入失败：${addressLabel(first.address)}${second ? ` / ${addressLabel(second.address)}` : ''}`, 5000)
-        await sleep(250)
-      } catch {
-        throw new Error(`蓝牙写入失败：${addressLabel(first.address)}${second ? ` / ${addressLabel(second.address)}` : ''}`)
-      }
-    }
-  }
-
-  private async writeBluetoothFrame(address: number, payload: Uint8Array) {
-    const frame = buildWriteFrame(address, payload)
-    this.configureBluetoothParameterPacket()
-    try {
-      await this.transport.write(frame)
-      this.log(`TX BLE WRITE ${addressLabel(address)} ${hex(frame.slice(0, 8))} ...`)
-    } finally {
-      this.restoreBluetoothParameterPacket()
-    }
-  }
-
   private async readAck(message: string, timeoutMs: number) {
     const startedAt = Date.now()
     while (Date.now() - startedAt < timeoutMs) {
@@ -206,20 +171,6 @@ export class Shx8800ProSession {
 
   private log(line: string) {
     this.options.onLog?.(line)
-  }
-
-  private configureBluetoothParameterPacket() {
-    const configurable = this.transport as RadioTransport & {
-      configure?: (options: { packetSize?: number; writeMode?: 'with-response' | 'without-response'; interChunkDelayMs?: number }) => void
-    }
-    configurable.configure?.({ packetSize: 18, writeMode: 'with-response', interChunkDelayMs: 20 })
-  }
-
-  private restoreBluetoothParameterPacket() {
-    const configurable = this.transport as RadioTransport & {
-      configure?: (options: { packetSize?: number; writeMode?: 'with-response' | 'without-response'; interChunkDelayMs?: number }) => void
-    }
-    configurable.configure?.({ packetSize: 18, writeMode: 'with-response', interChunkDelayMs: 20 })
   }
 
   private async performHandshake() {
