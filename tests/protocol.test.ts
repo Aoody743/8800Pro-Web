@@ -69,6 +69,13 @@ const rawEmptyChannelBlock = new Uint8Array(64).fill(0xff)
 applyBlockToAppData(rawEmptyChannelData, 0x0880, rawEmptyChannelBlock)
 assert.deepEqual(Array.from(encodeBlockForAddress(rawEmptyChannelData, 0x0880)), Array.from(rawEmptyChannelBlock))
 
+const noisyEmptyChannelData = createDefaultAppData()
+const noisyEmptyChannelBlock = new Uint8Array(64).fill(0xff)
+noisyEmptyChannelBlock.set([0xff, 0x12, 0x34, 0x41, 0x20, 0x00, 0x00, 0x00], 0)
+noisyEmptyChannelBlock.set([0xff, 0x56, 0x78, 0x41, 0x20, 0x00, 0x00, 0x00], 32)
+applyBlockToAppData(noisyEmptyChannelData, 0x0880, noisyEmptyChannelBlock)
+assert.deepEqual(Array.from(encodeBlockForAddress(noisyEmptyChannelData, 0x0880)), Array.from(new Uint8Array(64).fill(0xff)))
+
 const newChannelWithoutRaw = createDefaultAppData()
 newChannelWithoutRaw.channels[0][0] = {
   ...newChannelWithoutRaw.channels[0][0],

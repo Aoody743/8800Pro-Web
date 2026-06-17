@@ -205,7 +205,7 @@ function toBlockKey(address: number) {
 function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags = Boolean(base)) {
   const payload = base ? new Uint8Array(base) : new Uint8Array(32)
   if (!base) payload.fill(0xff)
-  if (!channel.rxFreq) return payload
+  if (!channel.rxFreq) return new Uint8Array(32).fill(0xff)
   payload.set(encodeChannelFrequency(channel.rxFreq), 0)
   payload.set(encodeChannelFrequency(channel.txFreq || channel.rxFreq), 4)
   payload.set(encodeTone(channel.rxTone), 8)
