@@ -213,7 +213,7 @@ class BluetoothWriteTransport implements RadioTransport {
       this.queue.push(...Array.from(new Uint8Array([0x01, 0x36, 0x01, 0x74, 0x04, 0x00, 0x05, 0x20, 0x02, 0x00, 0x02, 0x60, 0x00, 0x03, 0x50, 0x04])))
       return
     }
-    if (data[0] === 0x57) {
+    if (data.length === 64) {
       this.writeFrameCount += 1
       if (this.writeFrameCount % 2 === 0) this.queue.push(0x06)
       return
@@ -242,15 +242,13 @@ bluetoothWriteData.channels[0][0] = {
 }
 const blePayload = encodeBlockForAddress(bluetoothWriteData, 0)
 await new Shx8800ProSession(bluetoothWriteTransport, { bluetoothBlockDelayMs: 0 }).writeRadio(bluetoothWriteData)
-const bleWrites = bluetoothWriteTransport.writes.filter((write) => write[0] === 0x57)
+const bleWrites = bluetoothWriteTransport.writes.filter((write) => write.length === 64)
 assert.equal(bleWrites.length, getShx8800ProReadWriteAddresses().length)
-assert.equal(bleWrites[0].length, 68)
-assert.equal(bleWrites[1].length, 68)
-assert.deepEqual(Array.from(bleWrites[0].slice(0, 4)), [0x57, 0x00, 0x00, 0x40])
-assert.deepEqual(Array.from(bleWrites[1].slice(0, 4)), [0x57, 0x00, 0x40, 0x40])
-assert.deepEqual(Array.from(bleWrites[0].slice(4)), Array.from(blePayload))
-assert.equal(bluetoothWriteTransport.configs.some((config) => config.packetSize === 18 && config.writeMode === 'with-response' && config.interChunkDelayMs === 20), true)
-assert.equal(bluetoothWriteTransport.configs.some((config) => config.packetSize === 18 && config.writeMode === 'without-response' && config.interChunkDelayMs === 20), true)
+assert.equal(bleWrites[0].length, 64)
+assert.equal(bleWrites[1].length, 64)
+assert.deepEqual(Array.from(bleWrites[0]), Array.from(blePayload))
+assert.notDeepEqual(Array.from(bleWrites[1].slice(0, 4)), [0x57, 0x00, 0x40, 0x40])
+assert.equal(bluetoothWriteTransport.configs.some((config) => config.packetSize === 20 && config.writeMode === 'with-response' && config.interChunkDelayMs === 12), true)
 
 const rawPreserveData = createDefaultAppData()
 const rawFunction = new Uint8Array(64)

@@ -145,11 +145,10 @@ export class Shx8800ProSession {
   }
 
   private async writeBluetoothFrame(address: number, payload: Uint8Array) {
-    const frame = buildWriteFrame(address, payload)
     this.configureBluetoothParameterPacket()
     try {
-      await this.transport.write(frame)
-      this.log(`TX BLE WRITE ${addressLabel(address)} ${hex(frame.slice(0, 8))} ...`)
+      await this.transport.write(payload)
+      this.log(`TX BLE DATA ${addressLabel(address)} ${hex(payload.slice(0, 8))} ...`)
     } finally {
       this.restoreBluetoothParameterPacket()
     }
@@ -218,7 +217,7 @@ export class Shx8800ProSession {
     const configurable = this.transport as RadioTransport & {
       configure?: (options: { packetSize?: number; writeMode?: 'with-response' | 'without-response'; interChunkDelayMs?: number }) => void
     }
-    configurable.configure?.({ packetSize: 18, writeMode: 'without-response', interChunkDelayMs: 20 })
+    configurable.configure?.({ packetSize: 20, writeMode: 'with-response', interChunkDelayMs: 12 })
   }
 
   private restoreBluetoothParameterPacket() {
