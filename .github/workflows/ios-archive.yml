@@ -16,7 +16,6 @@ jobs:
       PROJECT_PATH: app8800pro/app8800pro.xcodeproj
       SCHEME: app8800pro
       ARCHIVE_PATH: build/app8800pro.xcarchive
-      KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
 
     steps:
       - name: Checkout
@@ -76,6 +75,8 @@ jobs:
         run: |
           set -euo pipefail
           CERTIFICATE_PATH="${RUNNER_TEMP}/build_certificate.p12"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/app-signing.keychain-db"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
           echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
 
