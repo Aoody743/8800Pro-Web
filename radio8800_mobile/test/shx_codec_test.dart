@@ -625,4 +625,55 @@ void main() {
     expect(const LinkState.connected('蓝牙已连接').isBusy, isFalse);
     expect(const LinkState.scanning().isBusy, isTrue);
   });
+
+  test('BLE advertisement matcher accepts service-filtered radio results', () {
+    expect(
+      RadioBleAdvertMatcher.matches(
+        names: const ['', ''],
+        serviceUuids: const [],
+        serviceFiltered: true,
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+    'BLE advertisement matcher accepts FFE0 service UUIDs and radio names',
+    () {
+      expect(
+        RadioBleAdvertMatcher.matches(
+          names: const [''],
+          serviceUuids: const ['0000FFE0-0000-1000-8000-00805F9B34FB'],
+          serviceFiltered: false,
+        ),
+        isTrue,
+      );
+      expect(
+        RadioBleAdvertMatcher.matches(
+          names: const ['walkie-talkie'],
+          serviceUuids: const [],
+          serviceFiltered: false,
+        ),
+        isTrue,
+      );
+      expect(
+        RadioBleAdvertMatcher.uuidMatches(
+          'ffe0',
+          '0000FFE0-0000-1000-8000-00805F9B34FB',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test('BLE advertisement matcher rejects unrelated devices', () {
+    expect(
+      RadioBleAdvertMatcher.matches(
+        names: const ['keyboard'],
+        serviceUuids: const ['180f'],
+        serviceFiltered: false,
+      ),
+      isFalse,
+    );
+  });
 }

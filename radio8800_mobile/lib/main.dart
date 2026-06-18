@@ -47,7 +47,7 @@ class _Radio8800AppState extends State<Radio8800App> {
       builder: (context, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: '8800Pro Mobile',
+          title: '8800Pro 写频',
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: const Color(0xFF0F9D8A),
@@ -2649,6 +2649,48 @@ class ImportSheet extends StatelessWidget {
   }
 }
 
+class RadioBleAdvertMatcher {
+  const RadioBleAdvertMatcher._();
+
+  static const radioService = '0000FFE0-0000-1000-8000-00805F9B34FB';
+
+  static bool matches({
+    required Iterable<String> names,
+    required Iterable<String> serviceUuids,
+    required bool serviceFiltered,
+  }) {
+    if (serviceFiltered) {
+      return true;
+    }
+    if (serviceUuids.any((uuid) => uuidMatches(uuid, radioService))) {
+      return true;
+    }
+    final name = names.join(' ').toLowerCase();
+    return name.contains('walkie') ||
+        name.contains('8800') ||
+        name.contains('shx') ||
+        name.contains('senhai') ||
+        name.contains('森海');
+  }
+
+  static bool uuidMatches(String value, String expected) {
+    final current = canonicalUuid(value);
+    final target = canonicalUuid(expected);
+    if (current == target) return true;
+    if (current.length == 4 && target.startsWith('0000$current')) return true;
+    if (target.length == 4 && current.startsWith('0000$target')) return true;
+    return current.endsWith(target) || target.endsWith(current);
+  }
+
+  static String canonicalUuid(String value) {
+    final compact = value.toLowerCase().replaceAll('-', '');
+    final bluetoothBase = RegExp(
+      r'^0000([0-9a-f]{4})00001000800000805f9b34fb$',
+    ).firstMatch(compact);
+    return bluetoothBase?.group(1) ?? compact;
+  }
+}
+
 class MobileStore extends ChangeNotifier {
   static const String bleService = '0000FFE0-0000-1000-8000-00805F9B34FB';
   static const String bleCharacteristic =
@@ -3040,7 +3082,8 @@ class MobileStore extends ChangeNotifier {
     final completer = Completer<BluetoothDevice?>();
     _scanSub = FlutterBluePlus.scanResults.listen((results) {
       for (final result in results) {
-        if (_matchesRadio(result) && !completer.isCompleted) {
+        if (_matchesRadio(result, serviceFiltered: filterByService) &&
+            !completer.isCompleted) {
           completer.complete(result.device);
           break;
         }
@@ -3067,16 +3110,18 @@ class MobileStore extends ChangeNotifier {
     }
   }
 
-  bool _matchesRadio(ScanResult result) {
-    final name = [
-      result.device.platformName,
-      result.advertisementData.advName,
-      result.device.advName,
-    ].join(' ').toLowerCase();
-    return name.contains('walkie') ||
-        name.contains('8800') ||
-        name.contains('shx');
-  }
+  bool _matchesRadio(ScanResult result, {required bool serviceFiltered}) =>
+      RadioBleAdvertMatcher.matches(
+        names: [
+          result.device.platformName,
+          result.advertisementData.advName,
+          result.device.advName,
+        ],
+        serviceUuids: result.advertisementData.serviceUuids.map(
+          (uuid) => uuid.toString(),
+        ),
+        serviceFiltered: serviceFiltered,
+      );
 
   Future<bool> _ensureBluetoothPermissions() async {
     var androidSdk = 31;
@@ -3276,21 +3321,8 @@ class MobileStore extends ChangeNotifier {
   }
 
   bool _matchesUuid(Guid uuid, String expected) {
-    final current = _canonicalUuid(uuid.toString());
-    final target = _canonicalUuid(expected);
-    if (current == target) return true;
-    if (current.length == 4 && target.startsWith('0000$current')) return true;
-    if (target.length == 4 && current.startsWith('0000$target')) return true;
-    return current.endsWith(target) || target.endsWith(current);
+    return RadioBleAdvertMatcher.uuidMatches(uuid.toString(), expected);
   }
-
-  String _canonicalUuid(String value) => value
-      .toLowerCase()
-      .replaceAll('-', '')
-      .replaceFirst(
-        RegExp(r'^0000([0-9a-f]{4})00001000800000805f9b34fb$'),
-        r'$1',
-      );
 
   Future<void> disconnect() async {
     _manualDisconnectRequested = true;
