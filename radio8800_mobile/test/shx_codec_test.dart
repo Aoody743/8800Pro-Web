@@ -102,6 +102,67 @@ void main() {
     expect(decoded.dtmf.idleTime, 7);
   });
 
+  test('preserves extended VFO settings like the iOS codec', () {
+    final data = RadioAppData.defaults()
+      ..vfoPttId = 2
+      ..vfoATxPower = 1
+      ..vfoABandwidth = 1
+      ..vfoAStep = 5
+      ..vfoABusyLock = 1
+      ..vfoASignalGroup = 9
+      ..vfoADirection = 2
+      ..vfoBTxPower = 2
+      ..vfoBBandwidth = 0
+      ..vfoBStep = 3
+      ..vfoBBusyLock = 0
+      ..vfoBSignalGroup = 4
+      ..vfoBDirection = 1;
+
+    final restored = RadioAppData.fromJson(data.toJson());
+    expect(restored.vfoPttId, 2);
+    expect(restored.vfoAStep, 5);
+    expect(restored.vfoBSignalGroup, 4);
+
+    final blocks = ShxCodec.bluetoothWriteBlocks(data);
+    final vfoBlock = blocks.firstWhere(
+      (item) => item.address == ShxCodec.vfoAddress,
+    );
+    final functionBlock = blocks.firstWhere(
+      (item) => item.address == ShxCodec.functionAddress,
+    );
+
+    expect(functionBlock.payload[11], 2);
+    expect(vfoBlock.payload[13], 1);
+    expect(vfoBlock.payload[14], 0x29);
+    expect(vfoBlock.payload[16], 1);
+    expect(vfoBlock.payload[17], 0x40);
+    expect(vfoBlock.payload[19], 5);
+    expect(vfoBlock.payload[32 + 13], 0);
+    expect(vfoBlock.payload[32 + 14], 0x14);
+    expect(vfoBlock.payload[32 + 16], 2);
+    expect(vfoBlock.payload[32 + 17], 0);
+    expect(vfoBlock.payload[32 + 19], 3);
+
+    final decoded = RadioAppData.defaults();
+    ShxCodec.applyBlock(
+      decoded,
+      ShxCodec.functionAddress,
+      functionBlock.payload,
+    );
+    ShxCodec.applyBlock(decoded, ShxCodec.vfoAddress, vfoBlock.payload);
+    expect(decoded.vfoPttId, 2);
+    expect(decoded.vfoABusyLock, 1);
+    expect(decoded.vfoASignalGroup, 9);
+    expect(decoded.vfoADirection, 2);
+    expect(decoded.vfoATxPower, 1);
+    expect(decoded.vfoABandwidth, 1);
+    expect(decoded.vfoAStep, 5);
+    expect(decoded.vfoBSignalGroup, 4);
+    expect(decoded.vfoBDirection, 1);
+    expect(decoded.vfoBTxPower, 2);
+    expect(decoded.vfoBStep, 3);
+  });
+
   test('backup signatures ignore timestamp changes', () {
     final data = RadioAppData.defaults();
     expect(data.hasBackupContent, isFalse);

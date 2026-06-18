@@ -1499,6 +1499,9 @@ class _ToolsPageState extends State<ToolsPage> {
                       offset: store.data.vfoAOffset,
                       rxTone: store.data.vfoARxTone,
                       txTone: store.data.vfoATxTone,
+                      txPower: store.data.vfoATxPower,
+                      bandwidth: store.data.vfoABandwidth,
+                      step: store.data.vfoAStep,
                       onFrequencyChanged: (value) =>
                           store.updateVfo((data) => data.vfoA = value),
                       onOffsetChanged: (value) =>
@@ -1507,6 +1510,12 @@ class _ToolsPageState extends State<ToolsPage> {
                           store.updateVfo((data) => data.vfoARxTone = value),
                       onTxToneChanged: (value) =>
                           store.updateVfo((data) => data.vfoATxTone = value),
+                      onTxPowerChanged: (value) =>
+                          store.updateVfo((data) => data.vfoATxPower = value),
+                      onBandwidthChanged: (value) =>
+                          store.updateVfo((data) => data.vfoABandwidth = value),
+                      onStepChanged: (value) =>
+                          store.updateVfo((data) => data.vfoAStep = value),
                     ),
                     const SizedBox(height: 12),
                     VfoEditor(
@@ -1515,6 +1524,9 @@ class _ToolsPageState extends State<ToolsPage> {
                       offset: store.data.vfoBOffset,
                       rxTone: store.data.vfoBRxTone,
                       txTone: store.data.vfoBTxTone,
+                      txPower: store.data.vfoBTxPower,
+                      bandwidth: store.data.vfoBBandwidth,
+                      step: store.data.vfoBStep,
                       onFrequencyChanged: (value) =>
                           store.updateVfo((data) => data.vfoB = value),
                       onOffsetChanged: (value) =>
@@ -1523,6 +1535,12 @@ class _ToolsPageState extends State<ToolsPage> {
                           store.updateVfo((data) => data.vfoBRxTone = value),
                       onTxToneChanged: (value) =>
                           store.updateVfo((data) => data.vfoBTxTone = value),
+                      onTxPowerChanged: (value) =>
+                          store.updateVfo((data) => data.vfoBTxPower = value),
+                      onBandwidthChanged: (value) =>
+                          store.updateVfo((data) => data.vfoBBandwidth = value),
+                      onStepChanged: (value) =>
+                          store.updateVfo((data) => data.vfoBStep = value),
                     ),
                     const SizedBox(height: 12),
                     ActionButton(
@@ -4079,6 +4097,19 @@ class RadioAppData {
   String vfoATxTone = 'OFF';
   String vfoBRxTone = 'OFF';
   String vfoBTxTone = 'OFF';
+  int vfoPttId = 0;
+  int vfoATxPower = 0;
+  int vfoBTxPower = 0;
+  int vfoABandwidth = 0;
+  int vfoBBandwidth = 0;
+  int vfoAStep = 0;
+  int vfoBStep = 0;
+  int vfoABusyLock = 0;
+  int vfoBBusyLock = 0;
+  int vfoASignalGroup = 0;
+  int vfoBSignalGroup = 0;
+  int vfoADirection = 0;
+  int vfoBDirection = 0;
   Map<String, List<int>> rawBlocks = {};
 
   int get visibleChannelCount => channels
@@ -4128,6 +4159,19 @@ class RadioAppData {
         ..vfoATxTone = json['vfoATxTone'] as String? ?? 'OFF'
         ..vfoBRxTone = json['vfoBRxTone'] as String? ?? 'OFF'
         ..vfoBTxTone = json['vfoBTxTone'] as String? ?? 'OFF'
+        ..vfoPttId = json['vfoPttId'] as int? ?? 0
+        ..vfoATxPower = json['vfoATxPower'] as int? ?? 0
+        ..vfoBTxPower = json['vfoBTxPower'] as int? ?? 0
+        ..vfoABandwidth = json['vfoABandwidth'] as int? ?? 0
+        ..vfoBBandwidth = json['vfoBBandwidth'] as int? ?? 0
+        ..vfoAStep = json['vfoAStep'] as int? ?? 0
+        ..vfoBStep = json['vfoBStep'] as int? ?? 0
+        ..vfoABusyLock = json['vfoABusyLock'] as int? ?? 0
+        ..vfoBBusyLock = json['vfoBBusyLock'] as int? ?? 0
+        ..vfoASignalGroup = json['vfoASignalGroup'] as int? ?? 0
+        ..vfoBSignalGroup = json['vfoBSignalGroup'] as int? ?? 0
+        ..vfoADirection = json['vfoADirection'] as int? ?? 0
+        ..vfoBDirection = json['vfoBDirection'] as int? ?? 0
         ..rawBlocks = (json['rawBlocks'] as Map<String, dynamic>? ?? {}).map(
           (key, value) => MapEntry(
             key,
@@ -4153,6 +4197,19 @@ class RadioAppData {
     'vfoATxTone': vfoATxTone,
     'vfoBRxTone': vfoBRxTone,
     'vfoBTxTone': vfoBTxTone,
+    'vfoPttId': vfoPttId,
+    'vfoATxPower': vfoATxPower,
+    'vfoBTxPower': vfoBTxPower,
+    'vfoABandwidth': vfoABandwidth,
+    'vfoBBandwidth': vfoBBandwidth,
+    'vfoAStep': vfoAStep,
+    'vfoBStep': vfoBStep,
+    'vfoABusyLock': vfoABusyLock,
+    'vfoBBusyLock': vfoBBusyLock,
+    'vfoASignalGroup': vfoASignalGroup,
+    'vfoBSignalGroup': vfoBSignalGroup,
+    'vfoADirection': vfoADirection,
+    'vfoBDirection': vfoBDirection,
     'rawBlocks': rawBlocks,
   };
 }
@@ -4531,6 +4588,7 @@ class RadioChoices {
   static const scanMode = ['时间', '载波', '搜索'];
   static const workMode = ['信道模式', '频率模式'];
   static const displayMode = ['名称', '频率', '信道号'];
+  static const stepOptions = ['2.5K', '5K', '6.25K', '10K', '12.5K', '25K'];
   static const autoLock = ['关闭', '5秒', '10秒', '15秒'];
   static const backlight = ['常亮', '5秒', '10秒', '20秒', '30秒'];
   static const pttId = ['关闭', 'BOT', 'EOT', 'BOT+EOT'];
@@ -5432,10 +5490,16 @@ class VfoEditor extends StatelessWidget {
     required this.offset,
     required this.rxTone,
     required this.txTone,
+    required this.txPower,
+    required this.bandwidth,
+    required this.step,
     required this.onFrequencyChanged,
     required this.onOffsetChanged,
     required this.onRxToneChanged,
     required this.onTxToneChanged,
+    required this.onTxPowerChanged,
+    required this.onBandwidthChanged,
+    required this.onStepChanged,
   });
 
   final String title;
@@ -5443,10 +5507,16 @@ class VfoEditor extends StatelessWidget {
   final String offset;
   final String rxTone;
   final String txTone;
+  final int txPower;
+  final int bandwidth;
+  final int step;
   final ValueChanged<String> onFrequencyChanged;
   final ValueChanged<String> onOffsetChanged;
   final ValueChanged<String> onRxToneChanged;
   final ValueChanged<String> onTxToneChanged;
+  final ValueChanged<int> onTxPowerChanged;
+  final ValueChanged<int> onBandwidthChanged;
+  final ValueChanged<int> onStepChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -5550,7 +5620,70 @@ class VfoEditor extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _VfoChoiceField(
+                  title: '功率',
+                  value: txPower,
+                  options: RadioChoices.power,
+                  onChanged: onTxPowerChanged,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _VfoChoiceField(
+                  title: '带宽',
+                  value: bandwidth,
+                  options: RadioChoices.bandwidth,
+                  onChanged: onBandwidthChanged,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _VfoChoiceField(
+                  title: '步进',
+                  value: step,
+                  options: RadioChoices.stepOptions,
+                  onChanged: onStepChanged,
+                ),
+              ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _VfoChoiceField extends StatelessWidget {
+  const _VfoChoiceField({
+    required this.title,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String title;
+  final int value;
+  final List<String> options;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return FormFieldCard(
+      title: title,
+      compact: true,
+      child: DropdownButtonFormField<int>(
+        initialValue: value.clamp(0, options.length - 1).toInt(),
+        decoration: const InputDecoration(border: OutlineInputBorder()),
+        items: List.generate(
+          options.length,
+          (index) =>
+              DropdownMenuItem(value: index, child: Text(options[index])),
+        ),
+        onChanged: (next) => onChanged(next ?? 0),
       ),
     );
   }
@@ -5698,6 +5831,7 @@ class ShxCodec {
       f.beep = payload[6] % 2;
       f.voice = payload[7] % 2;
       f.scanMode = payload[10] % 3;
+      data.vfoPttId = payload[11] % RadioChoices.pttId.length;
       f.chADisplay = payload[13] % 3;
       f.chBDisplay = payload[14] % 3;
       f.autoLock = payload[16] % 7;
@@ -5822,6 +5956,9 @@ class ShxCodec {
       payload[6] = f.beep;
       payload[7] = f.voice;
       payload[10] = f.scanMode;
+      payload[11] = data.vfoPttId
+          .clamp(0, RadioChoices.pttId.length - 1)
+          .toInt();
       payload[13] = f.chADisplay;
       payload[14] = f.chBDisplay;
       payload[16] = f.autoLock;
@@ -6070,6 +6207,14 @@ class ShxCodec {
       12,
       _encodeTone(sideA ? data.vfoATxTone : data.vfoBTxTone),
     );
+    payload[13] = (sideA ? data.vfoABusyLock : data.vfoBBusyLock) & 0x01;
+    payload[14] =
+        (((sideA ? data.vfoADirection : data.vfoBDirection) & 0x03) << 4) |
+        ((sideA ? data.vfoASignalGroup : data.vfoBSignalGroup) & 0x0f);
+    payload[16] = (sideA ? data.vfoATxPower : data.vfoBTxPower) & 0x03;
+    payload[17] =
+        ((sideA ? data.vfoABandwidth : data.vfoBBandwidth) & 0x01) << 6;
+    payload[19] = (sideA ? data.vfoAStep : data.vfoBStep) & 0x07;
     payload.setRange(
       20,
       27,
@@ -6083,11 +6228,23 @@ class ShxCodec {
       data.vfoA = _decodeVfoFreq(payload);
       data.vfoARxTone = _decodeTone(payload, 8);
       data.vfoATxTone = _decodeTone(payload, 10);
+      data.vfoABusyLock = payload[13] & 0x01;
+      data.vfoASignalGroup = payload[14] & 0x0f;
+      data.vfoADirection = (payload[14] >> 4) & 0x03;
+      data.vfoATxPower = payload[16] & 0x03;
+      data.vfoABandwidth = (payload[17] >> 6) & 0x01;
+      data.vfoAStep = payload[19] & 0x07;
       data.vfoAOffset = _decodeOffset(payload, 20);
     } else {
       data.vfoB = _decodeVfoFreq(payload);
       data.vfoBRxTone = _decodeTone(payload, 8);
       data.vfoBTxTone = _decodeTone(payload, 10);
+      data.vfoBBusyLock = payload[13] & 0x01;
+      data.vfoBSignalGroup = payload[14] & 0x0f;
+      data.vfoBDirection = (payload[14] >> 4) & 0x03;
+      data.vfoBTxPower = payload[16] & 0x03;
+      data.vfoBBandwidth = (payload[17] >> 6) & 0x01;
+      data.vfoBStep = payload[19] & 0x07;
       data.vfoBOffset = _decodeOffset(payload, 20);
     }
   }
