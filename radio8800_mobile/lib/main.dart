@@ -2244,6 +2244,9 @@ class MobileStore extends ChangeNotifier {
   String transferProgressTitle = '';
   Channel? _copiedChannel;
   bool _hasLoadedRepeaterLibrary = false;
+  bool _manualDisconnectRequested = false;
+  int _reconnectAttempts = 0;
+  Timer? _reconnectTimer;
 
   BluetoothDevice? _device;
   BluetoothCharacteristic? _characteristic;
@@ -2488,6 +2491,10 @@ class MobileStore extends ChangeNotifier {
   }
 
   Future<void> connectBluetooth() async {
+    _manualDisconnectRequested = false;
+    _reconnectAttempts = 0;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     progressNote = '正在准备蓝牙连接';
     linkState = const LinkState.scanning();
     notifyListeners();
@@ -2619,26 +2626,28 @@ class MobileStore extends ChangeNotifier {
   bool _isPermissionGranted(PermissionStatus status) =>
       status.isGranted || status.isLimited;
 
-  Future<void> _connectToDevice(BluetoothDevice device) async {
-    linkState = const LinkState.connecting();
-    progressNote = '正在建立蓝牙连接';
+  Future<void> _connectToDevice(
+    BluetoothDevice device, {
+    bool automaticReconnect = false,
+  }) async {
+    linkState = automaticReconnect
+        ? LinkState.reconnecting(_reconnectAttempts)
+        : const LinkState.connecting();
+    progressNote = automaticReconnect ? '正在自动重连蓝牙' : '正在建立蓝牙连接';
     notifyListeners();
     _device = device;
     _log('发现设备 ${device.platformName}');
 
     await _connSub?.cancel();
-    _connSub = device.connectionState.listen((state) {
-      if (state == BluetoothConnectionState.disconnected) {
-        linkState = const LinkState.disconnected();
-        progressNote = '连接已断开';
-        notice = const NoticeMessage.warning('设备断开连接');
-        _log('设备断开连接');
-        notifyListeners();
-      }
-    });
+    _connSub = null;
 
     try {
       await device.connect(timeout: const Duration(seconds: 12), mtu: 247);
+      _connSub = device.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          unawaited(_handleBleDisconnect(device));
+        }
+      });
       linkState = const LinkState.discovering();
       progressNote = '正在发现服务与特征';
       notifyListeners();
@@ -2657,8 +2666,7 @@ class MobileStore extends ChangeNotifier {
       }
 
       if (characteristic == null) {
-        await _markBleUnavailable('未发现 FFE1 特征');
-        return;
+        throw '未发现 FFE1 特征';
       }
 
       _characteristic = characteristic;
@@ -2677,17 +2685,78 @@ class MobileStore extends ChangeNotifier {
       linkState = const LinkState.connected('蓝牙已连接');
       progressNote = '蓝牙链路已连接';
       notice = const NoticeMessage.success('蓝牙链路已连接，可以先做握手测试或准备接协议。');
+      _manualDisconnectRequested = false;
+      _reconnectAttempts = 0;
       _log('FFE1 通知已开启，蓝牙链路已就绪');
       notifyListeners();
     } catch (error) {
-      await _markBleUnavailable('蓝牙连接失败：$error');
+      if (automaticReconnect && !_manualDisconnectRequested) {
+        _log('自动重连失败：$error');
+        _scheduleReconnect(device);
+      } else {
+        await _markBleUnavailable('蓝牙连接失败：$error');
+      }
     }
+  }
+
+  Future<void> _handleBleDisconnect(BluetoothDevice device) async {
+    await _notifySub?.cancel();
+    _notifySub = null;
+    _characteristic = null;
+    _rxBuffer.clear();
+    _rxSignal = null;
+
+    if (_manualDisconnectRequested) {
+      linkState = const LinkState.disconnected();
+      progressNote = '连接已断开';
+      notice = const NoticeMessage.neutral('设备已断开。');
+      _log('蓝牙连接已断开');
+      notifyListeners();
+      return;
+    }
+
+    _log('设备断开连接，准备自动重连');
+    _scheduleReconnect(device);
+  }
+
+  void _scheduleReconnect(BluetoothDevice device) {
+    if (_manualDisconnectRequested) {
+      return;
+    }
+    if (_reconnectTimer?.isActive ?? false) {
+      return;
+    }
+    if (_reconnectAttempts >= 3) {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+      linkState = const LinkState.disconnected();
+      progressNote = '自动重连失败';
+      notice = const NoticeMessage.warning('设备断开连接，已尝试自动重连 3 次。');
+      _log('自动重连失败：已尝试 3 次');
+      notifyListeners();
+      return;
+    }
+
+    _reconnectTimer?.cancel();
+    _reconnectAttempts += 1;
+    linkState = LinkState.reconnecting(_reconnectAttempts);
+    progressNote = '正在自动重连 $_reconnectAttempts/3';
+    notice = NoticeMessage.warning('设备断开连接，正在自动重连 $_reconnectAttempts/3');
+    _log('自动重连 $_reconnectAttempts/3');
+    notifyListeners();
+
+    final delay = Duration(seconds: 1 + _reconnectAttempts);
+    _reconnectTimer = Timer(delay, () {
+      unawaited(_connectToDevice(device, automaticReconnect: true));
+    });
   }
 
   Future<void> _markBleUnavailable(
     String message, {
     bool disconnectDevice = true,
   }) async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     await _scanSub?.cancel();
     _scanSub = null;
     await FlutterBluePlus.stopScan();
@@ -2729,6 +2798,9 @@ class MobileStore extends ChangeNotifier {
       );
 
   Future<void> disconnect() async {
+    _manualDisconnectRequested = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     await _notifySub?.cancel();
     await _connSub?.cancel();
     await _scanSub?.cancel();
@@ -3329,6 +3401,7 @@ class MobileStore extends ChangeNotifier {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     _notifySub?.cancel();
     _connSub?.cancel();
     _scanSub?.cancel();
@@ -3346,6 +3419,8 @@ class LinkState {
   const LinkState.connecting() : this._('正在连接', false);
   const LinkState.discovering() : this._('正在初始化链路', false);
   const LinkState.connected(String label) : this._(label, true);
+  factory LinkState.reconnecting(int attempt) =>
+      LinkState._('正在重连 ($attempt/3)', false);
 
   final String label;
   final bool isConnected;

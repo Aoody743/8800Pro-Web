@@ -276,4 +276,11 @@ void main() {
       expect(store.notice?.text, contains('回到总览页面写频'));
     },
   );
+
+  test('reconnecting link state reports retry progress', () {
+    final state = LinkState.reconnecting(2);
+
+    expect(state.isConnected, isFalse);
+    expect(state.label, '正在重连 (2/3)');
+  });
 }
