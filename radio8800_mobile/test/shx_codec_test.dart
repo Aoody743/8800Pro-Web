@@ -322,6 +322,13 @@ void main() {
     final state = LinkState.reconnecting(2);
 
     expect(state.isConnected, isFalse);
+    expect(state.isBusy, isTrue);
     expect(state.label, '正在重连 (2/3)');
+  });
+
+  test('disconnected and connected link states are not busy', () {
+    expect(const LinkState.disconnected().isBusy, isFalse);
+    expect(const LinkState.connected('蓝牙已连接').isBusy, isFalse);
+    expect(const LinkState.scanning().isBusy, isTrue);
   });
 }

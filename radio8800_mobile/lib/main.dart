@@ -79,9 +79,18 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   RootTab currentTab = RootTab.overview;
+  bool hasEnteredMain = false;
 
   @override
   Widget build(BuildContext context) {
+    if (widget.store.linkState.isConnected && !hasEnteredMain) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() => hasEnteredMain = true);
+        }
+      });
+    }
+
     final pages = <Widget>[
       OverviewPage(
         store: widget.store,
@@ -93,11 +102,18 @@ class _HomeShellState extends State<HomeShell> {
       GuidePage(store: widget.store),
       const AboutPage(),
     ];
+    final showStartup = !hasEnteredMain && !widget.store.linkState.isConnected;
 
     return Scaffold(
       body: Stack(
         children: [
-          SafeArea(child: pages[currentTab.index]),
+          if (showStartup)
+            StartupConnectPage(
+              store: widget.store,
+              onSkip: () => setState(() => hasEnteredMain = true),
+            )
+          else
+            SafeArea(child: pages[currentTab.index]),
           if (widget.store.transferProgressValue != null)
             Positioned(
               top: 12,
@@ -109,27 +125,198 @@ class _HomeShellState extends State<HomeShell> {
             ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: currentTab.index,
-        onDestinationSelected: (index) =>
-            setState(() => currentTab = RootTab.values[index]),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.speed_rounded), label: '总览'),
-          NavigationDestination(icon: Icon(Icons.tune_rounded), label: '信道'),
-          NavigationDestination(
-            icon: Icon(Icons.settings_suggest_rounded),
-            label: '功能',
+      bottomNavigationBar: showStartup
+          ? null
+          : NavigationBar(
+              selectedIndex: currentTab.index,
+              onDestinationSelected: (index) =>
+                  setState(() => currentTab = RootTab.values[index]),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.speed_rounded),
+                  label: '总览',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.tune_rounded),
+                  label: '信道',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings_suggest_rounded),
+                  label: '功能',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.build_rounded),
+                  label: '工具',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book_rounded),
+                  label: '教程',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.info_outline_rounded),
+                  label: '关于',
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class StartupConnectPage extends StatelessWidget {
+  const StartupConnectPage({
+    super.key,
+    required this.store,
+    required this.onSkip,
+  });
+
+  final MobileStore store;
+  final VoidCallback onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final busy = store.linkState.isBusy;
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFE9FBF7), Color(0xFFF7F4FF), Color(0xFFFFFFFF)],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: StatusPill(
+                  label: store.linkState.label,
+                  positive: store.linkState.isConnected,
+                ),
+              ),
+              const Spacer(),
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.92, end: 1),
+                duration: const Duration(milliseconds: 650),
+                curve: Curves.easeOutBack,
+                builder: (context, scale, child) {
+                  return Transform.scale(scale: scale, child: child);
+                },
+                child: Container(
+                  width: 156,
+                  height: 156,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.86),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F9D8A).withValues(alpha: 0.18),
+                        blurRadius: 36,
+                        offset: const Offset(0, 20),
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 550),
+                        width: busy ? 132 : 112,
+                        height: busy ? 132 : 112,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(
+                              0xFF0F9D8A,
+                            ).withValues(alpha: busy ? 0.34 : 0.16),
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 550),
+                        width: busy ? 96 : 82,
+                        height: busy ? 96 : 82,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0x140F9D8A),
+                        ),
+                      ),
+                      Icon(
+                        Icons.settings_input_antenna_rounded,
+                        size: 58,
+                        color: const Color(
+                          0xFF0F9D8A,
+                        ).withValues(alpha: busy ? 0.72 : 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 34),
+              Text(
+                '连接 8800Pro',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.headlineLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: const Color(0xFF113D37),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '连接成功后进入主页。首次使用建议先读频，确认机器里的真实配置，再开始编辑和写频。',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFF607570),
+                  height: 1.55,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: busy ? null : store.connectBluetooth,
+                  icon: busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.bluetooth_searching_rounded),
+                  label: Text(busy ? '正在连接...' : '蓝牙连接'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: onSkip,
+                icon: const Icon(Icons.edit_note_rounded),
+                label: const Text('离线编辑配置'),
+              ),
+              if (store.notice != null) ...[
+                const SizedBox(height: 14),
+                NoticeBanner(message: store.notice!),
+              ],
+              const Spacer(),
+              Text(
+                '首次进入不会预置任何信道，读频后会显示设备里的真实配置',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF7B8D89),
+                ),
+              ),
+            ],
           ),
-          NavigationDestination(icon: Icon(Icons.build_rounded), label: '工具'),
-          NavigationDestination(
-            icon: Icon(Icons.menu_book_rounded),
-            label: '教程',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.info_outline_rounded),
-            label: '关于',
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -3561,6 +3748,7 @@ class LinkState {
 
   final String label;
   final bool isConnected;
+  bool get isBusy => !isConnected && label != '未连接';
 }
 
 class NoticeMessage {
