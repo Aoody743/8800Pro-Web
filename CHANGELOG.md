@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-18
+
+- Added the HamCQ repeater database to the web app as a lazy-loaded static data package.
+- Redesigned the channel-page repeater library into a full-width region/province/city browser with search, incremental loading, and one-click write preview.
+
 ## 2026-06-17
 
 - Added the 8800Pro Bluetooth frequency-write path with paired frame ACK handling.

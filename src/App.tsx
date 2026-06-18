@@ -41,7 +41,7 @@ import type { RadioTransport } from './transport/transport'
 import { deleteBackup, listBackups, saveBackup, type BackupRecord } from './lib/backup'
 import { downloadJson, exportCsv, exportExcel, importExcel, loadJsonFile } from './lib/import-export'
 import { loadBootImage } from './lib/boot-image'
-import { buildChannelFromRepeater, describeRepeater, REPEATER_LIBRARY, type RepeaterEntry } from './lib/repeaters'
+import { buildChannelFromRepeater, createFallbackRepeaterPackage, describeRepeater, loadRepeaterLibrary, type RepeaterEntry, type RepeaterLibraryPackage } from './lib/repeaters'
 import { createSatelliteChannels, fetchSatelliteModes, type SatelliteMode } from './lib/satellite'
 
 type ViewId = 'dashboard' | 'channels' | 'vfo' | 'settings' | 'dtmf' | 'fm' | 'boot' | 'satellite' | 'files' | 'guide' | 'about' | 'debug'
@@ -909,9 +909,15 @@ function ChannelEditor({
   const [showEmpty, setShowEmpty] = useState(false)
   const [showTips, setShowTips] = useState(true)
   const [showRepeaterLibrary, setShowRepeaterLibrary] = useState(false)
-  const [repeaterCity, setRepeaterCity] = useState<'全部' | '深圳' | '广州'>('深圳')
+  const [repeaterPackage, setRepeaterPackage] = useState<RepeaterLibraryPackage | null>(null)
+  const [repeaterLoading, setRepeaterLoading] = useState(false)
+  const [repeaterError, setRepeaterError] = useState('')
+  const [repeaterRegion, setRepeaterRegion] = useState('')
+  const [repeaterProvinceCode, setRepeaterProvinceCode] = useState<number | null>(null)
+  const [repeaterCityCode, setRepeaterCityCode] = useState<number | null>(null)
   const [repeaterQuery, setRepeaterQuery] = useState('')
-  const [selectedRepeaterId, setSelectedRepeaterId] = useState<string>(REPEATER_LIBRARY[0]?.id ?? '')
+  const [repeaterVisibleLimit, setRepeaterVisibleLimit] = useState(80)
+  const [selectedRepeaterId, setSelectedRepeaterId] = useState('')
   const bank = data.channels[bankIndex]
   const selected = bank[selectedIndex]
   const visibleCount = bank.filter((channel) => channel.visible && channel.rxFreq).length
@@ -928,12 +934,45 @@ function ChannelEditor({
     if (!keyword) return true
     return [channel.name, channel.rxFreq, channel.txFreq, `ch-${channel.id}`].join(' ').toLowerCase().includes(keyword)
   })
-  const filteredRepeaters = REPEATER_LIBRARY.filter((entry) => {
-    if (repeaterCity !== '全部' && entry.city !== repeaterCity) return false
+  const repeaterRegions = useMemo(() => repeaterPackage?.regions ?? [], [repeaterPackage])
+  const repeaterEntries = useMemo(() => repeaterPackage?.repeaters ?? [], [repeaterPackage])
+  const activeRegionName = repeaterRegion || repeaterRegions[0]?.label || ''
+  const activeRegion = repeaterRegions.find((region) => region.label === activeRegionName)
+  const activeProvinces = activeRegion?.children ?? []
+  const regionRepeaters = useMemo(
+    () => repeaterEntries.filter((entry) => !activeRegionName || entry.region === activeRegionName),
+    [activeRegionName, repeaterEntries],
+  )
+  const areaRepeaters = useMemo(
+    () =>
+      regionRepeaters.filter((entry) => {
+        if (repeaterProvinceCode !== null && entry.provinceCode !== repeaterProvinceCode) return false
+        if (repeaterCityCode !== null && entry.cityCode !== repeaterCityCode) return false
+        return true
+      }),
+    [regionRepeaters, repeaterCityCode, repeaterProvinceCode],
+  )
+  const cityOptions = useMemo(() => {
+    const cityMap = new Map<number, { code: number; name: string; count: number }>()
+    regionRepeaters.forEach((entry) => {
+      if (repeaterProvinceCode !== null && entry.provinceCode !== repeaterProvinceCode) return
+      const current = cityMap.get(entry.cityCode) ?? { code: entry.cityCode, name: entry.city, count: 0 }
+      current.count += 1
+      cityMap.set(entry.cityCode, current)
+    })
+    return [...cityMap.values()].sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'))
+  }, [regionRepeaters, repeaterProvinceCode])
+  const filteredRepeaters = useMemo(() => {
     const keyword = repeaterQuery.trim().toLowerCase()
-    if (!keyword) return true
-    return [entry.city, entry.area, entry.name, entry.callSign, describeRepeater(entry), entry.kind].join(' ').toLowerCase().includes(keyword)
-  })
+    if (!keyword) return areaRepeaters
+    return areaRepeaters.filter((entry) =>
+      [entry.region, entry.province, entry.city, entry.area, entry.name, entry.callSign, describeRepeater(entry), entry.kind, entry.remark]
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword),
+    )
+  }, [areaRepeaters, repeaterQuery])
+  const visibleRepeaters = filteredRepeaters.slice(0, repeaterVisibleLimit)
   const selectedRepeater = filteredRepeaters.find((entry) => entry.id === selectedRepeaterId) ?? filteredRepeaters[0] ?? null
 
   function updateSelected(patch: Partial<Channel>) {
@@ -1030,6 +1069,30 @@ function ChannelEditor({
       return next
     })
     addLog(`已将中继台写入 ${data.bankNames[bankIndex]} / CH-${selectedIndex + 1}：${entry.city}${entry.name}${entry.callSign ? entry.callSign : ''}`)
+  }
+
+  function resetRepeaterList() {
+    setRepeaterVisibleLimit(80)
+  }
+
+  function ensureRepeaterLibrary() {
+    if (repeaterPackage || repeaterLoading) return
+    setRepeaterLoading(true)
+    setRepeaterError('')
+    loadRepeaterLibrary()
+      .then((library) => {
+        setRepeaterPackage(library)
+        setRepeaterRegion((current) => current || library.regions[0]?.label || '')
+        setSelectedRepeaterId((current) => current || library.repeaters[0]?.id || '')
+      })
+      .catch((error: unknown) => {
+        const fallback = createFallbackRepeaterPackage()
+        setRepeaterPackage(fallback)
+        setRepeaterRegion(fallback.regions[0]?.label || '')
+        setSelectedRepeaterId(fallback.repeaters[0]?.id || '')
+        setRepeaterError(error instanceof Error ? error.message : '中继台库加载失败，已启用内置备用库')
+      })
+      .finally(() => setRepeaterLoading(false))
   }
 
   return (
@@ -1173,58 +1236,178 @@ function ChannelEditor({
           <button type="button" className="ghost-button" onClick={deleteChannel}>删除并上移</button>
           <button type="button" className="ghost-button" onClick={compactBank}>整理空信道</button>
         </div>
-        <div className="repeater-panel">
-          <button type="button" className="repeater-toggle" onClick={() => setShowRepeaterLibrary((current) => !current)}>
-            <div>
-              <strong>中继台库</strong>
-              <span>直接选择常用中继台，一键写入当前信道。</span>
-            </div>
+      </section>
+      <section className="panel repeater-panel wide">
+        <button
+          type="button"
+          className="repeater-toggle"
+          onClick={() => {
+            const nextVisible = !showRepeaterLibrary
+            setShowRepeaterLibrary(nextVisible)
+            if (nextVisible) ensureRepeaterLibrary()
+          }}
+        >
+          <div>
+            <strong>全国中继台库</strong>
+            <span>按大区、省份和城市快速筛选，选择后可一键写入当前信道。</span>
+          </div>
+          <div className="repeater-toggle-meta">
+            <span>{repeaterPackage ? `${repeaterPackage.total} 条 · ${repeaterPackage.source}` : 'HamCQ 数据库'}</span>
             <em>{showRepeaterLibrary ? '收起' : '展开'}</em>
-          </button>
-          {showRepeaterLibrary ? (
-            <>
-              <div className="repeater-toolbar">
-                <div className="segmented">
-                  {(['深圳', '广州', '全部'] as const).map((city) => (
-                    <button key={city} type="button" className={repeaterCity === city ? 'active' : ''} onClick={() => setRepeaterCity(city)}>
-                      {city}
-                    </button>
-                  ))}
-                </div>
-                <TextField label="搜索中继台" value={repeaterQuery} placeholder="名称 / 呼号 / 频率" onChange={setRepeaterQuery} compact />
+          </div>
+        </button>
+        {showRepeaterLibrary ? (
+          <div className="repeater-database">
+            <div className="repeater-toolbar">
+              <TextField
+                label="搜索中继台"
+                value={repeaterQuery}
+                placeholder="名称 / 呼号 / 城市 / 频率 / 亚音"
+                onChange={(value) => {
+                  setRepeaterQuery(value)
+                  resetRepeaterList()
+                }}
+                compact
+              />
+              <div className="repeater-library-status">
+                {repeaterLoading ? <span>正在加载中继台库...</span> : null}
+                {!repeaterLoading && repeaterPackage ? (
+                  <span>
+                    已载入 {repeaterPackage.total} 条，当前筛选 {filteredRepeaters.length} 条
+                    {repeaterPackage.fetchedAt ? ` · ${new Date(repeaterPackage.fetchedAt).toLocaleDateString('zh-CN')}` : ''}
+                  </span>
+                ) : null}
+                {repeaterError ? <span className="warning-text">{repeaterError}</span> : null}
               </div>
+            </div>
+            <div className="repeater-region-strip" aria-label="中继台大区">
+              {repeaterRegions.map((region) => (
+                <button
+                  key={region.label}
+                  type="button"
+                  className={activeRegionName === region.label ? 'active' : ''}
+                  onClick={() => {
+                    setRepeaterRegion(region.label)
+                    setRepeaterProvinceCode(null)
+                    setRepeaterCityCode(null)
+                    resetRepeaterList()
+                  }}
+                >
+                  <strong>{region.label}</strong>
+                  <span>{region.children.reduce((sum, province) => sum + province.analog_total + province.digi_total, 0)} 条</span>
+                </button>
+              ))}
+            </div>
+            <div className="repeater-province-grid">
+              <button
+                type="button"
+                className={repeaterProvinceCode === null ? 'active' : ''}
+                onClick={() => {
+                  setRepeaterProvinceCode(null)
+                  setRepeaterCityCode(null)
+                  resetRepeaterList()
+                }}
+              >
+                <strong>全区</strong>
+                <span>{regionRepeaters.length} 条中继</span>
+              </button>
+              {activeProvinces.map((province) => (
+                <button
+                  key={province.code}
+                  type="button"
+                  className={repeaterProvinceCode === province.code ? 'active' : ''}
+                  onClick={() => {
+                    setRepeaterProvinceCode(province.code)
+                    setRepeaterCityCode(null)
+                    resetRepeaterList()
+                  }}
+                >
+                  <strong>{province.name}</strong>
+                  <span>模拟 {province.analog_total} · 数字 {province.digi_total}</span>
+                </button>
+              ))}
+            </div>
+            <div className="repeater-city-strip" aria-label="中继台城市">
+              <button
+                type="button"
+                className={repeaterCityCode === null ? 'active' : ''}
+                onClick={() => {
+                  setRepeaterCityCode(null)
+                  resetRepeaterList()
+                }}
+              >
+                全部城市
+              </button>
+              {cityOptions.map((city) => (
+                <button
+                  key={city.code}
+                  type="button"
+                  className={repeaterCityCode === city.code ? 'active' : ''}
+                  onClick={() => {
+                    setRepeaterCityCode(city.code)
+                    resetRepeaterList()
+                  }}
+                >
+                  {city.name}
+                  <span>{city.count}</span>
+                </button>
+              ))}
+            </div>
+            <div className="repeater-content">
               <div className="repeater-list">
-                {filteredRepeaters.map((entry) => (
+                {visibleRepeaters.map((entry) => (
                   <button key={entry.id} type="button" className={selectedRepeater?.id === entry.id ? 'selected' : ''} onClick={() => setSelectedRepeaterId(entry.id)}>
                     <div className="repeater-head">
-                      <strong>{entry.name}{entry.callSign ? entry.callSign : ''}</strong>
-                      <span>{entry.city} {entry.updatedAt}</span>
+                      <strong>{entry.name}{entry.callSign ? ` ${entry.callSign}` : ''}</strong>
+                      <span>{entry.province} · {entry.city}</span>
                     </div>
                     <div className="repeater-meta">
                       <b className={`kind-badge ${entry.kind}`}>{entry.kind}</b>
                       <em>{describeRepeater(entry)}</em>
                     </div>
+                    {entry.remark ? <p>{entry.remark}</p> : null}
                   </button>
                 ))}
-                {filteredRepeaters.length === 0 ? <div className="channel-empty">没有匹配的中继台</div> : null}
+                {filteredRepeaters.length === 0 && !repeaterLoading ? <div className="channel-empty">没有匹配的中继台</div> : null}
+                {visibleRepeaters.length < filteredRepeaters.length ? (
+                  <button type="button" className="repeater-load-more" onClick={() => setRepeaterVisibleLimit((current) => current + 80)}>
+                    加载更多 · 还有 {filteredRepeaters.length - visibleRepeaters.length} 条
+                  </button>
+                ) : null}
               </div>
               {selectedRepeater ? (
-                <div className="repeater-preview">
+                <aside className="repeater-preview">
+                  <div>
+                    <strong>{selectedRepeater.name}{selectedRepeater.callSign ? ` ${selectedRepeater.callSign}` : ''}</strong>
+                    <span>{selectedRepeater.province} · {selectedRepeater.city} · {selectedRepeater.updatedAt || '未知更新时间'}</span>
+                  </div>
                   <div className="summary-list compact-list">
-                    <span>当前选择 <strong>{selectedRepeater.city} {selectedRepeater.name}{selectedRepeater.callSign ? selectedRepeater.callSign : ''}</strong></span>
-                    <span>将写入接收 <strong>{selectedRepeater.rxFreq}</strong></span>
-                    <span>将写入发射 <strong>{buildChannelFromRepeater(selectedRepeater, selected.id).txFreq}</strong></span>
-                    <span>亚音设置 <strong>{buildChannelFromRepeater(selectedRepeater, selected.id).rxTone}/{buildChannelFromRepeater(selectedRepeater, selected.id).txTone}</strong></span>
+                    <span>接收 <strong>{selectedRepeater.rxFreq}</strong></span>
+                    <span>发射 <strong>{buildChannelFromRepeater(selectedRepeater, selected.id).txFreq}</strong></span>
+                    <span>亚音 <strong>{buildChannelFromRepeater(selectedRepeater, selected.id).rxTone}/{buildChannelFromRepeater(selectedRepeater, selected.id).txTone}</strong></span>
+                    <span>模式 <strong>{selectedRepeater.mode && selectedRepeater.mode !== '0' ? selectedRepeater.mode : selectedRepeater.kind}</strong></span>
                   </div>
                   <button type="button" className="primary-button" onClick={() => applyRepeater(selectedRepeater)}>
                     <Upload size={18} />
                     写入当前信道 CH-{selected.id}
                   </button>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
+                </aside>
+              ) : (
+                <aside className="repeater-preview muted-preview">
+                  <strong>请选择中继台</strong>
+                  <span>加载数据库后，先选大区、省份或城市，再把需要的中继台写入当前信道。</span>
+                </aside>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="repeater-compact-hint">
+            <div>
+              <strong>数据来源</strong>
+              <span>使用 HamCQ 中继台数据，展开后再加载，避免影响主页面打开速度。</span>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   )
@@ -2001,6 +2184,8 @@ function AboutPanel() {
 
         <h4>更新日志</h4>
         <div className="changelog">
+          <p><strong>全国中继台库</strong> 信道页接入 HamCQ 中继台数据，展开后懒加载 589 条记录，并支持按大区、省份、城市、名称、呼号、频率和亚音快速筛选。</p>
+          <p><strong>中继台库重做</strong> 原来的小卡片改成全宽数据库面板，左侧列表、右侧写入预览，支持分批加载，选择后可直接写入当前信道。</p>
           <p><strong>连接入口重做</strong> 未连接时只显示全屏连接界面，先选择蓝牙或 USB，连接成功后再进入完整控制台。</p>
           <p><strong>断线自动恢复</strong> 设备重启或短暂断开时会自动尝试重连 3 次，失败后才提示回到未连接状态。</p>
           <p><strong>信道名称保留</strong> 写回信道时优先保留原机名称字节，避免未修改名称时被空值或不同填充方式覆盖。</p>
