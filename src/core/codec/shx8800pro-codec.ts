@@ -188,6 +188,24 @@ export function getWriteBlocks(data: AppData) {
   }))
 }
 
+export function getBluetoothWriteBlocks(data: AppData) {
+  const blocks: Array<{ address: number; payload: Uint8Array }> = []
+
+  for (let address = 0; address < 0x4000; address += 0x80) {
+    const first = encodeBluetoothChannelBlock(data, address)
+    const second = encodeBluetoothChannelBlock(data, address + 0x40)
+    if (!first && !second) continue
+    blocks.push({ address, payload: first ?? encodeBluetoothChannelBlock(data, address, true)! })
+    blocks.push({ address: address + 0x40, payload: second ?? encodeBluetoothChannelBlock(data, address + 0x40, true)! })
+  }
+
+  getShx8800ProReadWriteAddresses()
+    .filter((address) => address >= 0x4000)
+    .forEach((address) => blocks.push({ address, payload: encodeBlockForAddress(data, address) }))
+
+  return blocks
+}
+
 function getBasePayload(data: AppData, address: number, fillValue = 0x00) {
   const raw = data.rawBlocks?.[toBlockKey(address)]
   if (raw?.length === SHX8800PRO.framePayloadBytes) return Uint8Array.from(raw)
@@ -202,8 +220,22 @@ function toBlockKey(address: number) {
   return address.toString(16).toUpperCase().padStart(4, '0')
 }
 
+function encodeBluetoothChannelBlock(data: AppData, address: number, includeEmpty = false) {
+  const firstChannelIndex = Math.floor(address / 64) * 2
+  const first = data.channels[Math.floor(firstChannelIndex / 64)][firstChannelIndex % 64]
+  const second = data.channels[Math.floor((firstChannelIndex + 1) / 64)][(firstChannelIndex + 1) % 64]
+  if (!includeEmpty && !first.rxFreq && !second.rxFreq) return undefined
+
+  const payload = getBasePayload(data, address, 0xff)
+  if (first.rxFreq) payload.set(encodeChannel(first, payload.slice(0, 32), hasRawBlock(data, address), address), 0)
+  else payload.set(sanitizeEmptyChannelPayload(payload.slice(0, 32), address), 0)
+  if (second.rxFreq) payload.set(encodeChannel(second, payload.slice(32, 64), hasRawBlock(data, address)), 32)
+  else payload.set(sanitizeEmptyChannelPayload(payload.slice(32, 64)), 32)
+  return payload
+}
+
 function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags = Boolean(base), blockAddress?: number) {
-  const baseIsUsable = Boolean(base) && !isBleFrameHeaderPollutedChannel(base!, blockAddress)
+  const baseIsUsable = Boolean(base) && !isBleFrameHeaderPollutedChannel(base!, blockAddress) && isValidBcdFrequency(base!, 0)
   const payload = baseIsUsable && base ? new Uint8Array(base) : new Uint8Array(32)
   if (!baseIsUsable) payload.fill(0xff)
   if (!channel.rxFreq) return new Uint8Array(32).fill(0xff)
@@ -220,7 +252,15 @@ function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags
 }
 
 function decodeChannel(payload: Uint8Array, id: number, blockAddress?: number): Channel {
-  if (payload[0] === 0xff || payload[1] === 0xff || payload[3] === 0 || isBleFrameHeaderPollutedChannel(payload, blockAddress)) return createEmptyChannel(id)
+  if (
+    payload[0] === 0xff ||
+    payload[1] === 0xff ||
+    payload[3] === 0 ||
+    isBleFrameHeaderPollutedChannel(payload, blockAddress) ||
+    !isValidBcdFrequency(payload, 0)
+  ) {
+    return createEmptyChannel(id)
+  }
   const name = payload[20] !== 0xff ? decodeRadioText(payload, 20, 12) : ''
   return {
     id,
@@ -240,6 +280,7 @@ function decodeChannel(payload: Uint8Array, id: number, blockAddress?: number): 
 }
 
 function isBleFrameHeaderPollutedChannel(payload: Uint8Array, blockAddress?: number) {
+  if (isAnyChannelWriteHeader(payload)) return true
   return (
     blockAddress !== undefined &&
     payload.length >= 4 &&
@@ -248,6 +289,26 @@ function isBleFrameHeaderPollutedChannel(payload: Uint8Array, blockAddress?: num
     payload[2] === (blockAddress & 0xff) &&
     payload[3] === 0x40
   )
+}
+
+function isAnyChannelWriteHeader(payload: Uint8Array) {
+  if (payload.length < 4 || payload[0] !== 0x57 || payload[3] !== 0x40) return false
+  const address = (payload[1] << 8) | payload[2]
+  return address < 0x4000 && address % 0x40 === 0
+}
+
+function isValidBcdFrequency(payload: Uint8Array, offset: number) {
+  if (payload.length < offset + 4) return false
+  for (let index = offset; index < offset + 4; index += 1) {
+    if ((payload[index] & 0x0f) > 9 || ((payload[index] >> 4) & 0x0f) > 9) return false
+  }
+  const freq = Number(decodeChannelFrequency(payload, offset))
+  return Number.isFinite(freq) && freq >= SHX8800PRO.minFreqMhz && freq < SHX8800PRO.maxFreqMhz
+}
+
+function sanitizeEmptyChannelPayload(payload: Uint8Array, blockAddress?: number) {
+  if (isBleFrameHeaderPollutedChannel(payload, blockAddress) || !isValidBcdFrequency(payload, 0)) return new Uint8Array(32).fill(0xff)
+  return new Uint8Array(payload)
 }
 
 function setChannelByFlatIndex(data: AppData, flatIndex: number, channel: Channel) {

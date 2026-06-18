@@ -365,7 +365,7 @@ function App() {
         {activeView === 'vfo' && <VfoPanel data={data} setData={setData} />}
         {activeView === 'settings' && <SettingsPanel data={data} setData={setData} />}
         {activeView === 'dtmf' && <DtmfPanel data={data} setData={setData} />}
-        {activeView === 'fm' && <FmPanel data={data} setData={setData} />}
+        {activeView === 'fm' && <FmPanel key={`${data.fm.currentFreq}:${data.fm.channels.join(',')}`} data={data} setData={setData} />}
         {activeView === 'boot' && (
           <BootImagePanel
             data={data}
@@ -1324,11 +1324,6 @@ function FmPanel({ data, setData }: DataPanelProps) {
   const [currentDraft, setCurrentDraft] = useState(() => formatFmDraft(data.fm.currentFreq))
   const [channelDrafts, setChannelDrafts] = useState(() => data.fm.channels.map(formatFmDraft))
 
-  useEffect(() => {
-    setCurrentDraft(formatFmDraft(data.fm.currentFreq))
-    setChannelDrafts(data.fm.channels.map(formatFmDraft))
-  }, [data.fm.currentFreq, data.fm.channels])
-
   function commitCurrent(value: string) {
     const parsed = parseFmDraft(value)
     const nextValue = parsed ?? 0
@@ -1767,15 +1762,15 @@ function AboutPanel() {
         <h4>技术实现</h4>
         <p>8800Pro Web 的写频链路不是照着一份完整文档做出来的，而是一步步从开源项目、官方写频软件、APK 行为和真实机器响应里拼出来的。最开始先借助社区项目确认信道、VFO、功能设置、DTMF、区域名称和 FM 收音机大概落在哪些地址，再把这些规则整理成浏览器里可测试的 TypeScript 编解码器。</p>
         <p>线写频部分相对清晰一些：通过 USB 串口反复对照握手、读块、写块和结束指令，确认 `PROGRAMSHXPU`、ACK、`52 addr 40` 读帧、`57 addr 40` 写帧和 64 字节数据区的关系。页面读频时会保存原始块，写回时只改已经识别的字段，尽量保留暂时没完全命名的机器设置。</p>
-        <p>蓝牙写频则更像实机摸索：先确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索、官方 iOS 应用的 RadioKit 框架和手台读回内容逐块比对。最关键的一步，是发现乱码频率并不是 FFE1 本身不能写，而是浏览器把 `57 addr 40 + 64 字节` 写频帧拆成 18 字节小包后，机器会把后续碎片当成数据落进信道区，于是出现 `404.00657`、`412.00757` 这类带 `57` 痕迹的频率。现在蓝牙写频会把每个 68 字节帧作为一次 GATT 写入发送，并按官方行为相邻两块等待一次 ACK。</p>
+        <p>蓝牙写频则更像实机摸索：先确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索、官方 iOS 应用的 RadioKit 框架和手台读回内容逐块比对。最关键的一步，是发现乱码频率并不是 FFE1 本身不能写，而是连续地址块不能把第二个 `57 addr 40` 帧头也发给机器；设备在这时正等 64 字节数据，帧头会直接落进信道区，于是出现 `404.00657`、`412.00757` 这类带 `57` 痕迹的频率。现在蓝牙写频会区分两种情况：连续 `+0x40` 的双块只发一个 header 后连续送两段 64 字节数据，不连续的配置块才按两个完整写帧发送。</p>
         <p>这些经验现在都沉到协议层和测试里：频率、中文信道名、亚音、VFO、功能设置、开机图限制、空信道填充和蓝牙基础写入都会被覆盖。界面看起来是网页，底下其实是一套围绕 8800Pro 内存块逐步校验出来的专用工具。</p>
 
         <h4>更新日志</h4>
         <div className="changelog">
-          <p><strong>修复蓝牙写频帧污染</strong> 确认蓝牙写频必须单次写入完整 68 字节帧，并且相邻两块共用一次 ACK；网页已停止 18 字节拆包，避免 `57 addr 40` 帧头落入信道数据。</p>
+          <p><strong>修复蓝牙写频帧污染</strong> 实机确认连续地址块必须使用 `header + data + data` 的流式写法；网页已停止给第二个连续块发送帧头，避免 `57 addr 40` 落入信道或 DTMF 数据。</p>
           <p><strong>官方链路对照</strong> 通过官方 iOS 应用的 RadioKit 框架和本地 CoreBluetooth 实机测试，确认 8800Pro 读写频主链路仍走 FFE1，FF31/FF32 不是普通读写块的替代通道。</p>
           <p><strong>回读保护</strong> 蓝牙写频完成后建议立即读频，页面会继续保留写频前自动备份，方便发现异常时回退。</p>
-          <p><strong>锁定有风险的蓝牙写频</strong> 实机确认 FFE1 写帧会把 `57 addr 40` 帧头写入空信道，当前网页阻止蓝牙写回，避免继续生成 404/412 乱码频率。</p>
+          <p><strong>实机校验通过</strong> 使用本地 CoreBluetooth 对真实 8800Pro 完成全量读、生成蓝牙写入计划、写回、逐块校验和再次全量读回，确认疑似污染信道为 0。</p>
           <p><strong>空信道清理</strong> 读到已被帧头污染的空信道时，会在页面中按空信道处理；再次通过 USB 写回时会编码为全 `FF` 空槽。</p>
           <p><strong>技术实现说明</strong> 关于页新增协议摸索过程，记录本项目如何结合开源项目、官方软件、APK 线索和实机读回逐步实现读写频。</p>
           <p><strong>实时连接监测</strong> 设备断开后会自动切换成未连接状态，并在页面里直接提示。</p>

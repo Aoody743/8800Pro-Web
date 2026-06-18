@@ -1,4 +1,4 @@
-import { applyBlockToAppData, getWriteBlocks } from '../codec/shx8800pro-codec'
+import { applyBlockToAppData, getBluetoothWriteBlocks, getWriteBlocks } from '../codec/shx8800pro-codec'
 import { addressLabel, getShx8800ProReadWriteAddresses } from '../constants/memory-map'
 import type { AppData } from '../models/radio'
 import { cloneAppData, createDefaultAppData } from '../models/radio'
@@ -67,26 +67,56 @@ export class Shx8800ProSession {
 
   private async writeRadioBluetooth(data: AppData) {
     await this.handshake()
-    const blocks = getWriteBlocks(data)
+    const blocks = getBluetoothWriteBlocks(data)
     for (let index = 0; index < blocks.length; index += 2) {
       this.assertNotAborted()
       const first = blocks[index]
       const second = blocks[index + 1]
       this.progress('write', first.address, Math.round((index / blocks.length) * 100))
-      await this.writeBlockNoAck(first.address, first.payload)
-      if (second) {
-        await sleep(this.options.bluetoothWritePairDelayMs ?? 220)
-        this.progress('write', second.address, Math.round(((index + 1) / blocks.length) * 100))
-        await this.writeBlockNoAck(second.address, second.payload)
-      }
+      if (!second) throw new Error(`蓝牙写入失败：${addressLabel(first.address)} 缺少配对块`)
+      if (second.address === first.address + 0x40) await this.writeBluetoothStreamPair(first, second, index, blocks.length)
+      else await this.writeBluetoothConfigPair(first, second, index, blocks.length)
       await this.readAck(
-        second ? `蓝牙写入失败：${addressLabel(first.address)} / ${addressLabel(second.address)}` : `蓝牙写入失败：${addressLabel(first.address)}`,
+        `蓝牙写入失败：${addressLabel(first.address)} / ${addressLabel(second.address)}`,
         6000,
       )
       await sleep(this.options.bluetoothAckSettleMs ?? 80)
     }
     await this.transport.write(new Uint8Array([0x45]))
     this.progress('done', undefined, 100)
+  }
+
+  private async writeBluetoothStreamPair(
+    first: { address: number; payload: Uint8Array },
+    second: { address: number; payload: Uint8Array },
+    index: number,
+    total: number,
+  ) {
+    if (second.address !== first.address + 0x40) {
+      throw new Error(`蓝牙连续写入地址不匹配：${addressLabel(first.address)} / ${addressLabel(second.address)}`)
+    }
+    const header = new Uint8Array([0x57, (first.address >> 8) & 0xff, first.address & 0xff, 0x40])
+    await this.transport.write(header)
+    this.log(`TX BLE HEADER ${addressLabel(first.address)} ${hex(header)}`)
+    await sleep(100)
+    await this.transport.write(first.payload)
+    this.log(`TX BLE DATA ${addressLabel(first.address)} ${hex(first.payload.slice(0, 8))} ...`)
+    await sleep(this.options.bluetoothWritePairDelayMs ?? 220)
+    this.progress('write', second.address, Math.round(((index + 1) / total) * 100))
+    await this.transport.write(second.payload)
+    this.log(`TX BLE DATA ${addressLabel(second.address)} ${hex(second.payload.slice(0, 8))} ...`)
+  }
+
+  private async writeBluetoothConfigPair(
+    first: { address: number; payload: Uint8Array },
+    second: { address: number; payload: Uint8Array },
+    index: number,
+    total: number,
+  ) {
+    await this.writeBlockNoAck(first.address, first.payload)
+    await sleep(this.options.bluetoothWritePairDelayMs ?? 220)
+    this.progress('write', second.address, Math.round(((index + 1) / total) * 100))
+    await this.writeBlockNoAck(second.address, second.payload)
   }
 
   async writeAndVerify(data: AppData) {
