@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:radio8800_mobile/main.dart';
 
@@ -164,4 +167,47 @@ void main() {
     expect(store.data.channels[0][2].rxFreq, '437.00000');
     expect(store.data.channels[0][3].visible, isFalse);
   });
+
+  test('parses the packaged HamCQ repeater library', () {
+    final raw = File('assets/data/hamcq-repeaters.json').readAsStringSync();
+    final package = RepeaterLibraryPackage.fromJson(
+      jsonDecode(raw) as Map<String, dynamic>,
+    );
+
+    expect(package.total, greaterThan(500));
+    expect(package.repeaters.length, package.total);
+    expect(package.regions, isNotEmpty);
+    expect(package.repeaters.first.rxFreq, isNotEmpty);
+  });
+
+  test(
+    'applies repeater tx frequency and explicit tones from library data',
+    () {
+      final store = MobileStore();
+      final entry = RepeaterEntry(
+        id: 'test',
+        region: '7 区',
+        province: '广东省',
+        city: '深圳',
+        name: '测试台',
+        kind: '模拟',
+        rxFreq: '439.46250',
+        txFreq: '434.46250',
+        offset: '-5.00000',
+        toneText: 'T88.5 / TSQ88.5',
+        txTone: '88.5',
+        rxTone: '88.5',
+      );
+
+      store.applyRepeater(entry);
+
+      final channel = store.data.channels[0][0];
+      expect(channel.rxFreq, '439.46250');
+      expect(channel.txFreq, '434.46250');
+      expect(channel.rxTone, '88.5');
+      expect(channel.txTone, '88.5');
+      expect(channel.scanAdd, 1);
+      expect(channel.busyLock, 1);
+    },
+  );
 }

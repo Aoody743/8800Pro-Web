@@ -1707,10 +1707,68 @@ class AboutPage extends StatelessWidget {
   }
 }
 
-class RepeaterSheet extends StatelessWidget {
+class RepeaterSheet extends StatefulWidget {
   const RepeaterSheet({super.key, required this.store});
 
   final MobileStore store;
+
+  @override
+  State<RepeaterSheet> createState() => _RepeaterSheetState();
+}
+
+class _RepeaterSheetState extends State<RepeaterSheet> {
+  String selectedRegion = '';
+  int? selectedProvinceCode;
+  String keyword = '';
+
+  MobileStore get store => widget.store;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadLibrary());
+  }
+
+  Future<void> _loadLibrary() async {
+    await store.loadRepeaterLibraryIfNeeded();
+    if (!mounted) return;
+    setState(() {
+      selectedRegion = selectedRegion.isNotEmpty
+          ? selectedRegion
+          : (store.repeaterRegions.isEmpty
+                ? ''
+                : store.repeaterRegions.first.label);
+    });
+  }
+
+  List<RepeaterProvinceGroup> get selectedRegionProvinces {
+    for (final region in store.repeaterRegions) {
+      if (region.label == selectedRegion) {
+        return region.children;
+      }
+    }
+    return const [];
+  }
+
+  List<RepeaterEntry> get filteredRepeaters {
+    final text = keyword.trim().toLowerCase();
+    return store.repeaters.where((entry) {
+      if (selectedRegion.isNotEmpty && entry.region != selectedRegion) {
+        return false;
+      }
+      if (selectedProvinceCode != null &&
+          entry.provinceCode != selectedProvinceCode) {
+        return false;
+      }
+      if (text.isEmpty) {
+        return true;
+      }
+      final haystack =
+          '${entry.displayName} ${entry.locationText} ${entry.rxFreq} ${entry.txFreq} ${entry.toneText} ${entry.kind} ${entry.mode ?? ''}'
+              .toLowerCase();
+      return haystack.contains(text);
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1721,29 +1779,148 @@ class RepeaterSheet extends StatelessWidget {
         minChildSize: 0.5,
         maxChildSize: 0.94,
         builder: (context, controller) {
+          final visibleRepeaters = filteredRepeaters;
           return Material(
             color: const Color(0xFFF4FBF9),
-            child: ListView(
+            child: ListView.builder(
               controller: controller,
               padding: const EdgeInsets.all(16),
-              children: [
-                const SheetHeader(title: '中继台库', subtitle: '点一条就会写入当前选中的信道。'),
-                const SizedBox(height: 12),
-                for (final repeater in store.repeaters) ...[
-                  GestureDetector(
+              itemCount: visibleRepeaters.length + 1,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return RepeaterFilterHeader(
+                    status: store.repeaterLibraryStatus,
+                    total: visibleRepeaters.length,
+                    regions: store.repeaterRegions,
+                    selectedRegion: selectedRegion,
+                    provinces: selectedRegionProvinces,
+                    selectedProvinceCode: selectedProvinceCode,
+                    onRegionChanged: (value) {
+                      setState(() {
+                        selectedRegion = value;
+                        selectedProvinceCode = null;
+                      });
+                    },
+                    onProvinceChanged: (value) {
+                      setState(() => selectedProvinceCode = value);
+                    },
+                    onKeywordChanged: (value) {
+                      setState(() => keyword = value);
+                    },
+                  );
+                }
+                final repeater = visibleRepeaters[index - 1];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: GestureDetector(
                     onTap: () {
                       store.applyRepeater(repeater);
                       Navigator.of(context).pop();
                     },
                     child: RepeaterTile(repeater: repeater),
                   ),
-                  const SizedBox(height: 10),
-                ],
-              ],
+                );
+              },
             ),
           );
         },
       ),
+    );
+  }
+}
+
+class RepeaterFilterHeader extends StatelessWidget {
+  const RepeaterFilterHeader({
+    super.key,
+    required this.status,
+    required this.total,
+    required this.regions,
+    required this.selectedRegion,
+    required this.provinces,
+    required this.selectedProvinceCode,
+    required this.onRegionChanged,
+    required this.onProvinceChanged,
+    required this.onKeywordChanged,
+  });
+
+  final String status;
+  final int total;
+  final List<RepeaterRegionGroup> regions;
+  final String selectedRegion;
+  final List<RepeaterProvinceGroup> provinces;
+  final int? selectedProvinceCode;
+  final ValueChanged<String> onRegionChanged;
+  final ValueChanged<int?> onProvinceChanged;
+  final ValueChanged<String> onKeywordChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SheetHeader(title: '中继台库', subtitle: '按大区和省份筛选，点一条写入当前信道。'),
+        const SizedBox(height: 12),
+        InfoStrip(title: '数据状态', detail: '$status · 当前显示 $total 条'),
+        const SizedBox(height: 12),
+        TextField(
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search_rounded),
+            hintText: '搜索名称、城市、频率、亚音或制式',
+            border: OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          onChanged: onKeywordChanged,
+        ),
+        const SizedBox(height: 12),
+        if (regions.isNotEmpty) ...[
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemBuilder: (context, index) {
+                final region = regions[index];
+                return ChoiceChip(
+                  label: Text(region.label),
+                  selected: region.label == selectedRegion,
+                  onSelected: (_) => onRegionChanged(region.label),
+                );
+              },
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemCount: regions.length,
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (provinces.isNotEmpty) ...[
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return ChoiceChip(
+                    label: const Text('全部省份'),
+                    selected: selectedProvinceCode == null,
+                    onSelected: (_) => onProvinceChanged(null),
+                  );
+                }
+                final province = provinces[index - 1];
+                return ChoiceChip(
+                  label: Text(
+                    '${province.name} ${province.analogTotal + province.digiTotal}',
+                  ),
+                  selected: province.code == selectedProvinceCode,
+                  onSelected: (_) => onProvinceChanged(province.code),
+                );
+              },
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemCount: provinces.length + 1,
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ],
     );
   }
 }
@@ -1919,6 +2096,7 @@ class MobileStore extends ChangeNotifier {
   final List<RadioSnapshot> backups = [];
   final List<String> logs = [];
   final List<RepeaterEntry> repeaters = List.of(DemoData.repeaters);
+  final List<RepeaterRegionGroup> repeaterRegions = [];
   final List<ImportedChannelDraft> importedDrafts = [];
   LinkState linkState = const LinkState.disconnected();
   NoticeMessage? notice;
@@ -1931,9 +2109,11 @@ class MobileStore extends ChangeNotifier {
   bool showFieldHints = true;
   String progressNote = '准备就绪';
   String lastOperation = '尚未开始读写';
+  String repeaterLibraryStatus = '中继台库尚未加载';
   double? transferProgressValue;
   String transferProgressTitle = '';
   Channel? _copiedChannel;
+  bool _hasLoadedRepeaterLibrary = false;
 
   BluetoothDevice? _device;
   BluetoothCharacteristic? _characteristic;
@@ -2481,16 +2661,54 @@ class MobileStore extends ChangeNotifier {
     updateCurrentChannel((channel) {
       channel.name = entry.displayName.characters.take(12).toString();
       channel.rxFreq = entry.rxFreq;
-      channel.txFreq = _offsetFrequency(entry.rxFreq, entry.offset);
-      channel.txTone = _normalizeTone(entry.toneText);
-      channel.rxTone = entry.toneText.toUpperCase().contains('TSQ')
-          ? _normalizeTone(entry.toneText)
-          : 'OFF';
+      channel.txFreq = entry.txFreq.trim().isEmpty
+          ? _offsetFrequency(entry.rxFreq, entry.offset)
+          : entry.txFreq;
+      final explicitRxTone = _normalizeTone(entry.rxTone);
+      final explicitTxTone = _normalizeTone(entry.txTone);
+      final fallbackTone = _normalizeTone(entry.toneText);
+      final usesTsq = entry.toneText.toUpperCase().contains('TSQ');
+      channel.rxTone = explicitRxTone != 'OFF'
+          ? explicitRxTone
+          : (usesTsq ? fallbackTone : 'OFF');
+      channel.txTone = explicitTxTone != 'OFF' ? explicitTxTone : fallbackTone;
+      channel.txPower = 0;
+      channel.bandwidth = 0;
+      channel.scanAdd = 1;
       channel.busyLock = 1;
     });
     _success(
       '已将 ${entry.displayName} 写入 $currentBankName / CH-${currentChannel.id}',
     );
+  }
+
+  Future<void> loadRepeaterLibraryIfNeeded() async {
+    if (_hasLoadedRepeaterLibrary) {
+      return;
+    }
+    _hasLoadedRepeaterLibrary = true;
+    repeaterLibraryStatus = '正在加载 HamCQ 中继台库...';
+    notifyListeners();
+    try {
+      final package = await RepeaterLibraryLoader.loadPackagedLibrary();
+      repeaters
+        ..clear()
+        ..addAll(package.repeaters);
+      repeaterRegions
+        ..clear()
+        ..addAll(package.regions);
+      repeaterLibraryStatus =
+          'HamCQ ${package.total} 条，更新于 ${package.fetchedAt.substring(0, min(10, package.fetchedAt.length))}';
+      _log('已加载 HamCQ 中继台库 ${package.total} 条');
+    } catch (error) {
+      repeaters
+        ..clear()
+        ..addAll(DemoData.repeaters);
+      repeaterRegions.clear();
+      repeaterLibraryStatus = '中继台库加载失败，已使用演示数据';
+      _warning('中继台库加载失败：$error');
+    }
+    notifyListeners();
   }
 
   Future<void> importFromClipboard() async {
@@ -2901,8 +3119,22 @@ class MobileStore extends ChangeNotifier {
     }
   }
 
-  String _normalizeTone(String source) {
-    return source.replaceAll(RegExp('TSQ|T', caseSensitive: false), '').trim();
+  String _normalizeTone(String? source) {
+    if (source == null || source.trim().isEmpty) {
+      return 'OFF';
+    }
+    final cleaned = source
+        .replaceFirst(RegExp('^TSQ', caseSensitive: false), '')
+        .replaceFirst(RegExp('^T', caseSensitive: false), '')
+        .trim();
+    if (cleaned == 'OFF' || cleaned == '0' || cleaned == '无') {
+      return 'OFF';
+    }
+    final numeric = double.tryParse(cleaned);
+    if (numeric == null) {
+      return 'OFF';
+    }
+    return numeric % 1 == 0 ? numeric.toStringAsFixed(1) : '$numeric';
   }
 
   String _offsetFrequency(String rx, String offset) {
@@ -3321,26 +3553,169 @@ class RadioSnapshot {
 class RepeaterEntry {
   const RepeaterEntry({
     required this.id,
+    this.region = '',
+    this.province = '',
+    this.provinceCode = 0,
     required this.city,
+    this.cityCode = 0,
+    this.area = '',
     required this.name,
     required this.kind,
     required this.rxFreq,
+    this.txFreq = '',
     required this.offset,
     required this.toneText,
+    this.txTone,
+    this.rxTone,
     this.callSign,
+    this.updatedAt = '',
+    this.mode,
+    this.remark,
+    this.source,
+    this.sourceUser,
+    this.sourceCreatedAt,
   });
 
   final String id;
+  final String region;
+  final String province;
+  final int provinceCode;
   final String city;
+  final int cityCode;
+  final String area;
   final String name;
   final String kind;
   final String rxFreq;
+  final String txFreq;
   final String offset;
   final String toneText;
+  final String? txTone;
+  final String? rxTone;
   final String? callSign;
+  final String updatedAt;
+  final String? mode;
+  final String? remark;
+  final String? source;
+  final String? sourceUser;
+  final int? sourceCreatedAt;
 
   String get displayName =>
       callSign == null || callSign!.isEmpty ? name : '$name $callSign';
+
+  String get locationText => [
+    region,
+    province,
+    city,
+  ].where((item) => item.trim().isNotEmpty).join(' / ');
+
+  factory RepeaterEntry.fromJson(Map<String, dynamic> json) => RepeaterEntry(
+    id: json['id']?.toString() ?? '',
+    region: json['region']?.toString() ?? '',
+    province: json['province']?.toString() ?? '',
+    provinceCode: json['provinceCode'] as int? ?? 0,
+    city: json['city']?.toString() ?? '',
+    cityCode: json['cityCode'] as int? ?? 0,
+    area: json['area']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
+    callSign: json['callSign']?.toString(),
+    updatedAt: json['updatedAt']?.toString() ?? '',
+    kind: json['kind']?.toString() ?? '',
+    rxFreq: json['rxFreq']?.toString() ?? '',
+    txFreq: json['txFreq']?.toString() ?? '',
+    offset: json['offset']?.toString() ?? '',
+    toneText: json['toneText']?.toString() ?? '',
+    txTone: json['txTone']?.toString(),
+    rxTone: json['rxTone']?.toString(),
+    mode: json['mode']?.toString(),
+    remark: json['remark']?.toString(),
+    source: json['source']?.toString(),
+    sourceUser: json['sourceUser']?.toString(),
+    sourceCreatedAt: json['sourceCreatedAt'] as int?,
+  );
+}
+
+class RepeaterProvinceGroup {
+  const RepeaterProvinceGroup({
+    required this.name,
+    required this.code,
+    required this.analogTotal,
+    required this.digiTotal,
+    this.municipality,
+  });
+
+  final String name;
+  final int code;
+  final int analogTotal;
+  final int digiTotal;
+  final bool? municipality;
+
+  factory RepeaterProvinceGroup.fromJson(Map<String, dynamic> json) =>
+      RepeaterProvinceGroup(
+        name: json['name']?.toString() ?? '',
+        code: json['code'] as int? ?? 0,
+        analogTotal: json['analog_total'] as int? ?? 0,
+        digiTotal: json['digi_total'] as int? ?? 0,
+        municipality: json['municipality'] as bool?,
+      );
+}
+
+class RepeaterRegionGroup {
+  const RepeaterRegionGroup({required this.label, required this.children});
+
+  final String label;
+  final List<RepeaterProvinceGroup> children;
+
+  factory RepeaterRegionGroup.fromJson(Map<String, dynamic> json) =>
+      RepeaterRegionGroup(
+        label: json['label']?.toString() ?? '',
+        children: (json['children'] as List<dynamic>? ?? [])
+            .map(
+              (item) =>
+                  RepeaterProvinceGroup.fromJson(item as Map<String, dynamic>),
+            )
+            .toList(),
+      );
+}
+
+class RepeaterLibraryPackage {
+  const RepeaterLibraryPackage({
+    required this.source,
+    required this.fetchedAt,
+    required this.total,
+    required this.regions,
+    required this.repeaters,
+  });
+
+  final String source;
+  final String fetchedAt;
+  final int total;
+  final List<RepeaterRegionGroup> regions;
+  final List<RepeaterEntry> repeaters;
+
+  factory RepeaterLibraryPackage.fromJson(Map<String, dynamic> json) =>
+      RepeaterLibraryPackage(
+        source: json['source']?.toString() ?? '',
+        fetchedAt: json['fetchedAt']?.toString() ?? '',
+        total: json['total'] as int? ?? 0,
+        regions: (json['regions'] as List<dynamic>? ?? [])
+            .map(
+              (item) =>
+                  RepeaterRegionGroup.fromJson(item as Map<String, dynamic>),
+            )
+            .toList(),
+        repeaters: (json['repeaters'] as List<dynamic>? ?? [])
+            .map((item) => RepeaterEntry.fromJson(item as Map<String, dynamic>))
+            .toList(),
+      );
+}
+
+class RepeaterLibraryLoader {
+  static Future<RepeaterLibraryPackage> loadPackagedLibrary() async {
+    final raw = await rootBundle.loadString('assets/data/hamcq-repeaters.json');
+    return RepeaterLibraryPackage.fromJson(
+      jsonDecode(raw) as Map<String, dynamic>,
+    );
+  }
 }
 
 class ImportedChannelDraft {
@@ -4148,7 +4523,17 @@ class RepeaterTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${repeater.city} · ${repeater.rxFreq} · ${repeater.toneText}',
+                  [
+                    repeater.locationText.isEmpty
+                        ? repeater.city
+                        : repeater.locationText,
+                    'RX ${repeater.rxFreq}',
+                    if (repeater.txFreq.trim().isNotEmpty)
+                      'TX ${repeater.txFreq}'
+                    else
+                      '差 ${repeater.offset}',
+                    if (repeater.toneText.trim().isNotEmpty) repeater.toneText,
+                  ].join(' · '),
                   style: const TextStyle(color: Colors.black54),
                 ),
               ],
