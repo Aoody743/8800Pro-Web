@@ -1482,19 +1482,48 @@ class _ToolsPageState extends State<ToolsPage> {
                     const SizedBox(height: 12),
                     FormFieldCard(
                       title: '当前频点',
-                      child: TextFormField(
-                        key: ValueKey(
-                          'fm-current-${store.data.fm.currentFreq}',
-                        ),
-                        initialValue: '${store.data.fm.currentFreq}',
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          hintText: '904',
-                        ),
-                        keyboardType: TextInputType.number,
-                        onChanged: (value) => store.updateFm(
-                          (fm) => fm.currentFreq = int.tryParse(value) ?? 904,
-                        ),
+                      child: Row(
+                        children: [
+                          IconButton.filledTonal(
+                            tooltip: '减少 0.1 MHz',
+                            onPressed: () => store.stepFmCurrent(-1),
+                            icon: const Icon(Icons.remove_rounded),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextFormField(
+                              key: ValueKey(
+                                'fm-current-${store.data.fm.currentFreq}',
+                              ),
+                              initialValue: FmFrequency.formatDraft(
+                                store.data.fm.currentFreq,
+                              ),
+                              decoration: const InputDecoration(
+                                border: OutlineInputBorder(),
+                                hintText: '90.4',
+                                suffixText: 'MHz',
+                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              onChanged: store.setFmCurrentFromDraft,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            tooltip: '增加 0.1 MHz',
+                            onPressed: () => store.stepFmCurrent(1),
+                            icon: const Icon(Icons.add_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '当前收音频率 ${FmFrequency.formatDraft(store.data.fm.currentFreq)} MHz',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1511,35 +1540,82 @@ class _ToolsPageState extends State<ToolsPage> {
                       ],
                     ],
                     const SizedBox(height: 12),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: store.data.fm.channels.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            childAspectRatio: 1.8,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                          ),
-                      itemBuilder: (context, index) {
-                        final value = store.data.fm.channels[index];
-                        return FormFieldCard(
-                          title: '记忆 ${index + 1}',
-                          compact: true,
-                          child: TextFormField(
-                            key: ValueKey('fm-$index-$value'),
-                            initialValue: value == 0 ? '' : '$value',
-                            decoration: const InputDecoration(
-                              border: OutlineInputBorder(),
-                              hintText: '0',
-                            ),
-                            keyboardType: TextInputType.number,
-                            onChanged: (text) => store.updateFm(
-                              (fm) =>
-                                  fm.channels[index] = int.tryParse(text) ?? 0,
-                            ),
-                          ),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns = constraints.maxWidth < 560 ? 2 : 3;
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: store.data.fm.channels.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                childAspectRatio: columns == 2 ? 1.25 : 1.45,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                              ),
+                          itemBuilder: (context, index) {
+                            final value = store.data.fm.channels[index];
+                            return FormFieldCard(
+                              title: '记忆 ${index + 1}',
+                              compact: true,
+                              child: Column(
+                                children: [
+                                  TextFormField(
+                                    key: ValueKey('fm-$index-$value'),
+                                    initialValue: FmFrequency.formatDraft(
+                                      value,
+                                    ),
+                                    decoration: const InputDecoration(
+                                      border: OutlineInputBorder(),
+                                      hintText: '88.7',
+                                      suffixText: 'MHz',
+                                    ),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    onChanged: (text) =>
+                                        store.setFmMemoryFromDraft(index, text),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      IconButton(
+                                        tooltip: '载入',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () =>
+                                            store.loadFmMemory(index),
+                                        icon: const Icon(
+                                          Icons.play_arrow_rounded,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: '保存当前频点',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () =>
+                                            store.saveCurrentFmToMemory(index),
+                                        icon: const Icon(
+                                          Icons.save_alt_rounded,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: '删除',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () =>
+                                            store.clearFmMemory(index),
+                                        icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         );
                       },
                     ),
@@ -2460,6 +2536,67 @@ class MobileStore extends ChangeNotifier {
     change(data.fm);
     data.updatedAt = DateTime.now();
     notifyListeners();
+  }
+
+  void setFmCurrentFromDraft(String value) {
+    final parsed = FmFrequency.parseDraft(value);
+    if (parsed == null) {
+      return;
+    }
+    updateFm((fm) => fm.currentFreq = parsed);
+  }
+
+  void stepFmCurrent(int delta) {
+    updateFm(
+      (fm) => fm.currentFreq = (fm.currentFreq + delta)
+          .clamp(FmFrequency.minValue, FmFrequency.maxValue)
+          .toInt(),
+    );
+  }
+
+  void setFmMemoryFromDraft(int index, String value) {
+    if (!data.fm.channels.asMap().containsKey(index)) {
+      return;
+    }
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      updateFm((fm) => fm.channels[index] = 0);
+      return;
+    }
+    final parsed = FmFrequency.parseDraft(trimmed);
+    if (parsed == null) {
+      return;
+    }
+    updateFm((fm) => fm.channels[index] = parsed);
+  }
+
+  void loadFmMemory(int index) {
+    if (!data.fm.channels.asMap().containsKey(index)) {
+      return;
+    }
+    final value = data.fm.channels[index];
+    if (value <= 0) {
+      _warning('这个 FM 记忆位还是空的');
+      return;
+    }
+    updateFm((fm) => fm.currentFreq = value);
+    _success('已加载 FM 记忆 ${index + 1}');
+  }
+
+  void saveCurrentFmToMemory(int index) {
+    if (!data.fm.channels.asMap().containsKey(index)) {
+      return;
+    }
+    updateFm((fm) => fm.channels[index] = fm.currentFreq);
+    _success('已保存当前 FM 到记忆 ${index + 1}');
+  }
+
+  void clearFmMemory(int index) {
+    if (!data.fm.channels.asMap().containsKey(index)) {
+      return;
+    }
+    updateFm((fm) => fm.channels[index] = 0);
+    _success('已删除 FM 记忆 ${index + 1}');
   }
 
   void updateBootImage(void Function(BootImageDraft image) change) {
@@ -3634,6 +3771,40 @@ class FmSettings {
     'currentFreq': currentFreq,
     'channels': channels,
   };
+}
+
+class FmFrequency {
+  const FmFrequency._();
+
+  static const int minValue = 760;
+  static const int maxValue = 1080;
+
+  static String formatDraft(int value) {
+    if (value <= 0) {
+      return '';
+    }
+    return (value / 10).toStringAsFixed(1);
+  }
+
+  static int? parseDraft(String value) {
+    final normalized = value
+        .trim()
+        .replaceAll('，', '.')
+        .replaceAll('。', '.')
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll(RegExp('mhz', caseSensitive: false), '')
+        .replaceAll('ＭＨＺ', '')
+        .replaceAll('ｍｈｚ', '');
+    if (normalized.isEmpty || normalized.endsWith('.')) {
+      return null;
+    }
+
+    final mhz = double.tryParse(normalized);
+    if (mhz == null || mhz < 76.0 || mhz > 108.0) {
+      return null;
+    }
+    return (mhz * 10).round().clamp(minValue, maxValue).toInt();
+  }
 }
 
 class BootImageDraft {

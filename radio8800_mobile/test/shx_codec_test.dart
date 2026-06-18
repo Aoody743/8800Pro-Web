@@ -277,6 +277,47 @@ void main() {
     },
   );
 
+  test('formats and parses FM frequencies as MHz drafts', () {
+    expect(FmFrequency.formatDraft(904), '90.4');
+    expect(FmFrequency.formatDraft(0), '');
+
+    expect(FmFrequency.parseDraft('90.4'), 904);
+    expect(FmFrequency.parseDraft('90.4MHz'), 904);
+    expect(FmFrequency.parseDraft('90，4ＭＨＺ'), 904);
+    expect(FmFrequency.parseDraft('76.0'), 760);
+    expect(FmFrequency.parseDraft('108.0'), 1080);
+
+    expect(FmFrequency.parseDraft(''), isNull);
+    expect(FmFrequency.parseDraft('90.'), isNull);
+    expect(FmFrequency.parseDraft('75.9'), isNull);
+    expect(FmFrequency.parseDraft('108.1'), isNull);
+  });
+
+  test('edits FM current frequency and memory slots', () {
+    final store = MobileStore();
+
+    store.setFmCurrentFromDraft('90.4MHz');
+    expect(store.data.fm.currentFreq, 904);
+
+    store.stepFmCurrent(1);
+    expect(store.data.fm.currentFreq, 905);
+
+    store.stepFmCurrent(-200);
+    expect(store.data.fm.currentFreq, 760);
+
+    store.saveCurrentFmToMemory(0);
+    expect(store.data.fm.channels[0], 760);
+
+    store.setFmMemoryFromDraft(1, '98。8');
+    expect(store.data.fm.channels[1], 988);
+
+    store.loadFmMemory(1);
+    expect(store.data.fm.currentFreq, 988);
+
+    store.clearFmMemory(1);
+    expect(store.data.fm.channels[1], 0);
+  });
+
   test('reconnecting link state reports retry progress', () {
     final state = LinkState.reconnecting(2);
 
