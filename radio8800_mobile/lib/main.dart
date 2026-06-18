@@ -1975,7 +1975,7 @@ class MobileStore extends ChangeNotifier {
 
     final adapterState = await FlutterBluePlus.adapterState.first;
     if (adapterState != BluetoothAdapterState.on) {
-      _warning('蓝牙未开启，请先打开手机蓝牙');
+      await _markBleUnavailable('蓝牙未开启，请先打开手机蓝牙');
       return;
     }
 
@@ -1995,12 +1995,12 @@ class MobileStore extends ChangeNotifier {
         );
       }
       if (device == null) {
-        _warning('扫描超时，请确认对讲机蓝牙已开启并靠近手机');
+        await _markBleUnavailable('扫描超时，请确认对讲机蓝牙已开启并靠近手机');
         return;
       }
       await _connectToDevice(device);
     } catch (error) {
-      _warning('扫描失败：$error');
+      await _markBleUnavailable('扫描失败：$error');
     }
   }
 
@@ -2073,19 +2073,21 @@ class MobileStore extends ChangeNotifier {
       (status) => status.isPermanentlyDenied,
     );
     if (permanentlyDenied) {
-      _warning(
+      await _markBleUnavailable(
         androidSdk >= 31
             ? '蓝牙权限被永久拒绝，请到系统设置里允许附近设备权限。'
             : '定位权限被永久拒绝，Android 11 及以下需要它才能扫描蓝牙设备。',
+        disconnectDevice: false,
       );
       await openAppSettings();
       return false;
     }
 
-    _warning(
+    await _markBleUnavailable(
       androidSdk >= 31
           ? '需要附近设备/蓝牙权限才能扫描对讲机。'
           : 'Android 11 及以下需要定位权限才能扫描蓝牙设备。',
+      disconnectDevice: false,
     );
     return false;
   }
@@ -2131,7 +2133,7 @@ class MobileStore extends ChangeNotifier {
       }
 
       if (characteristic == null) {
-        _warning('未发现 FFE1 特征');
+        await _markBleUnavailable('未发现 FFE1 特征');
         return;
       }
 
@@ -2154,8 +2156,35 @@ class MobileStore extends ChangeNotifier {
       _log('FFE1 通知已开启，蓝牙链路已就绪');
       notifyListeners();
     } catch (error) {
-      _warning('蓝牙连接失败：$error');
+      await _markBleUnavailable('蓝牙连接失败：$error');
     }
+  }
+
+  Future<void> _markBleUnavailable(
+    String message, {
+    bool disconnectDevice = true,
+  }) async {
+    await _scanSub?.cancel();
+    _scanSub = null;
+    await FlutterBluePlus.stopScan();
+    await _notifySub?.cancel();
+    _notifySub = null;
+    if (disconnectDevice && _device != null) {
+      await _connSub?.cancel();
+      _connSub = null;
+      try {
+        await _device!.disconnect();
+      } catch (_) {
+        // Best effort cleanup; the user-facing state below is what matters.
+      }
+    }
+    _characteristic = null;
+    _device = null;
+    _rxBuffer.clear();
+    _rxSignal = null;
+    linkState = const LinkState.disconnected();
+    progressNote = '未连接';
+    _warning(message);
   }
 
   bool _matchesUuid(Guid uuid, String expected) {
