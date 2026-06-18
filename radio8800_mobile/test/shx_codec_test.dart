@@ -258,6 +258,20 @@ void main() {
     expect(decoded.functions.key2Long, 3);
   });
 
+  test('function setting choices cover protocol ranges', () {
+    expect(RadioChoices.level.length, 10);
+    expect(RadioChoices.backlight.length, 9);
+    expect(RadioChoices.autoLock.length, 7);
+    expect(RadioChoices.delay16.length, 16);
+    expect(RadioChoices.tot.length, 9);
+    expect(RadioChoices.rptTail.length, 11);
+    expect(RadioChoices.menuQuitTime.length, 11);
+    expect(RadioChoices.powerOnDelay.length, 15);
+    expect(RadioChoices.powerOnDisplay.length, 22);
+    expect(RadioChoices.bluetoothGain.length, 5);
+    expect(RadioChoices.keyAction.length, 5);
+  });
+
   test('backup signatures ignore timestamp changes', () {
     final data = RadioAppData.defaults();
     expect(data.hasBackupContent, isFalse);

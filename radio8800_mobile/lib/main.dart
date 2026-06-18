@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:charset/charset.dart' as charset;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:gbk_codec/gbk_codec.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1236,8 +1236,26 @@ class _SettingsPageState extends State<SettingsPage> {
                   indexedField(
                     '静噪等级',
                     store.data.functions.sql,
-                    List.generate(10, (index) => '$index'),
+                    RadioChoices.level,
                     (value) => store.updateFunction((f) => f.sql = value),
+                  ),
+                  indexedField(
+                    '省电模式',
+                    store.data.functions.saveMode,
+                    RadioChoices.saveMode,
+                    (value) => store.updateFunction((f) => f.saveMode = value),
+                  ),
+                  indexedField(
+                    'VOX 灵敏度',
+                    store.data.functions.vox,
+                    RadioChoices.level,
+                    (value) => store.updateFunction((f) => f.vox = value),
+                  ),
+                  indexedField(
+                    'VOX 延迟',
+                    store.data.functions.voxDelay,
+                    RadioChoices.delay16,
+                    (value) => store.updateFunction((f) => f.voxDelay = value),
                   ),
                   indexedField(
                     '背光时间',
@@ -1277,10 +1295,124 @@ class _SettingsPageState extends State<SettingsPage> {
                     (value) => store.updateFunction((f) => f.scanMode = value),
                   ),
                   indexedField(
+                    '发射限时',
+                    store.data.functions.tot,
+                    RadioChoices.tot,
+                    (value) => store.updateFunction((f) => f.tot = value),
+                  ),
+                  indexedField(
+                    'FM 收音',
+                    store.data.functions.fmEnable,
+                    RadioChoices.onOff,
+                    (value) => store.updateFunction((f) => f.fmEnable = value),
+                  ),
+                  indexedField(
                     '麦克风增益',
                     store.data.functions.micGain,
                     const ['低', '中', '高'],
                     (value) => store.updateFunction((f) => f.micGain = value),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SettingsCard(
+                title: '提示、尾音与按键',
+                subtitle: 'PTT 延迟、Roger 音、尾音消除和侧键功能会随功能块一起写入。',
+                children: [
+                  indexedField(
+                    'PTT 延迟',
+                    store.data.functions.pttDelay,
+                    RadioChoices.delay16,
+                    (value) => store.updateFunction((f) => f.pttDelay = value),
+                  ),
+                  indexedField(
+                    '侧音',
+                    store.data.functions.sideTone,
+                    RadioChoices.sideTone,
+                    (value) => store.updateFunction((f) => f.sideTone = value),
+                  ),
+                  indexedField(
+                    '尾音消除',
+                    store.data.functions.tailClear,
+                    RadioChoices.onOff,
+                    (value) => store.updateFunction((f) => f.tailClear = value),
+                  ),
+                  indexedField(
+                    '中继尾音消除',
+                    store.data.functions.rptTailClear,
+                    RadioChoices.rptTail,
+                    (value) =>
+                        store.updateFunction((f) => f.rptTailClear = value),
+                  ),
+                  indexedField(
+                    '中继尾音检测',
+                    store.data.functions.rptTailDetect,
+                    RadioChoices.rptTail,
+                    (value) =>
+                        store.updateFunction((f) => f.rptTailDetect = value),
+                  ),
+                  indexedField(
+                    'Roger 音',
+                    store.data.functions.roger,
+                    RadioChoices.onOff,
+                    (value) => store.updateFunction((f) => f.roger = value),
+                  ),
+                  indexedField(
+                    '键盘锁',
+                    store.data.functions.keyLock,
+                    RadioChoices.onOff,
+                    (value) => store.updateFunction((f) => f.keyLock = value),
+                  ),
+                  indexedField(
+                    '提示音类型',
+                    store.data.functions.tone,
+                    RadioChoices.tone,
+                    (value) => store.updateFunction((f) => f.tone = value),
+                  ),
+                  indexedField(
+                    '菜单退出',
+                    store.data.functions.menuQuitTime,
+                    RadioChoices.menuQuitTime,
+                    (value) =>
+                        store.updateFunction((f) => f.menuQuitTime = value),
+                  ),
+                  indexedField(
+                    '开机延迟',
+                    store.data.functions.powerOnDelay,
+                    RadioChoices.powerOnDelay,
+                    (value) =>
+                        store.updateFunction((f) => f.powerOnDelay = value),
+                  ),
+                  indexedField(
+                    'VOX 开关',
+                    store.data.functions.voxSwitch,
+                    RadioChoices.onOff,
+                    (value) => store.updateFunction((f) => f.voxSwitch = value),
+                  ),
+                  indexedField(
+                    '本地 SOS 音',
+                    store.data.functions.localSosTone,
+                    RadioChoices.onOff,
+                    (value) =>
+                        store.updateFunction((f) => f.localSosTone = value),
+                  ),
+                  indexedField(
+                    '报警模式',
+                    store.data.functions.alarmMode,
+                    RadioChoices.alarmMode,
+                    (value) => store.updateFunction((f) => f.alarmMode = value),
+                  ),
+                  indexedField(
+                    '侧键短按',
+                    store.data.functions.key2Short,
+                    RadioChoices.keyAction,
+                    (value) => store.updateFunction((f) => f.key2Short = value),
+                  ),
+                  indexedField(
+                    '侧键长按',
+                    store.data.functions.key2Long,
+                    RadioChoices.keyAction,
+                    (value) => store.updateFunction((f) => f.key2Long = value),
                   ),
                 ],
               ),
@@ -1297,7 +1429,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     indexedField(
                       '开机显示',
                       store.data.functions.powerOnDisplay,
-                      const ['欢迎词', '电压', 'Logo'],
+                      RadioChoices.powerOnDisplay,
                       (value) =>
                           store.updateFunction((f) => f.powerOnDisplay = value),
                     ),
@@ -1305,7 +1437,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     indexedField(
                       '蓝牙音量',
                       store.data.functions.bluetoothAudioGain,
-                      const ['低', '中', '高'],
+                      RadioChoices.bluetoothGain,
                       (value) => store.updateFunction(
                         (f) => f.bluetoothAudioGain = value,
                       ),
@@ -1314,7 +1446,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     indexedField(
                       '蓝牙麦克风',
                       store.data.functions.bluetoothMicGain,
-                      const ['低', '中', '高'],
+                      RadioChoices.bluetoothGain,
                       (value) => store.updateFunction(
                         (f) => f.bluetoothMicGain = value,
                       ),
@@ -1386,7 +1518,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return FormFieldCard(
       title: title,
       child: DropdownButtonFormField<int>(
-        initialValue: min(value, options.length - 1),
+        initialValue: value.clamp(0, options.length - 1).toInt(),
         decoration: const InputDecoration(border: OutlineInputBorder()),
         items: List.generate(
           options.length,
@@ -4654,9 +4786,58 @@ class RadioChoices {
   static const workMode = ['信道模式', '频率模式'];
   static const displayMode = ['名称', '频率', '信道号'];
   static const stepOptions = ['2.5K', '5K', '6.25K', '10K', '12.5K', '25K'];
-  static const autoLock = ['关闭', '5秒', '10秒', '15秒'];
-  static const backlight = ['常亮', '5秒', '10秒', '20秒', '30秒'];
+  static const autoLock = ['关闭', '5秒', '10秒', '15秒', '30秒', '1分钟', '5分钟'];
+  static const backlight = [
+    '常亮',
+    '5秒',
+    '10秒',
+    '20秒',
+    '30秒',
+    '1分钟',
+    '2分钟',
+    '5分钟',
+    '自动',
+  ];
   static const pttId = ['关闭', 'BOT', 'EOT', 'BOT+EOT'];
+  static const saveMode = ['关闭', '省电 1', '省电 2', '省电 3'];
+  static const sideTone = ['关闭', '低', '中', '高'];
+  static const tone = ['关闭', '低音', '标准', '高音'];
+  static const alarmMode = ['本机', '远程', '全部'];
+  static const bluetoothGain = ['0', '1', '2', '3', '4'];
+  static const powerOnDisplay = [
+    '默认',
+    '电压',
+    '图片',
+    '文字',
+    '信道',
+    '频率',
+    '名称',
+    '时间',
+    '欢迎语',
+    '呼号',
+    'Logo',
+    '简洁',
+    '详细',
+    '区域',
+    'A 通道',
+    'B 通道',
+    '双通道',
+    '菜单',
+    '状态',
+    '自定义 1',
+    '自定义 2',
+    '关闭',
+  ];
+  static final level = List.generate(10, (index) => '等级 $index');
+  static final delay16 = List.generate(16, (index) => '$index');
+  static final tot = List.generate(
+    9,
+    (index) => index == 0 ? '关闭' : '$index 分钟',
+  );
+  static final rptTail = List.generate(11, (index) => '$index');
+  static final menuQuitTime = List.generate(11, (index) => '$index 秒');
+  static final powerOnDelay = List.generate(15, (index) => '$index 秒');
+  static const keyAction = ['关闭', '监听', '扫描', 'FM', '报警'];
 }
 
 class ToneLibrary {
@@ -6543,7 +6724,7 @@ class ShxCodec {
     }
     if (out.isEmpty) return '';
     try {
-      return gbk_bytes.decode(out).trim();
+      return _decodeRadioTextBytes(out).trim();
     } catch (_) {
       return utf8.decode(out, allowMalformed: true).trim();
     }
@@ -6551,9 +6732,12 @@ class ShxCodec {
 
   static List<int> _encodeRadioChar(String char) {
     if (char.isEmpty) return const [];
+    final override = _radioTextEncodeOverrides[char];
+    if (override != null) return override;
     try {
-      final encoded = gbk_bytes.encode(char);
+      final encoded = charset.gbk.encode(char);
       if (encoded.isNotEmpty &&
+          !(encoded.length == 1 && encoded.first == 0x3f && char != '?') &&
           encoded.every((byte) => byte >= 0 && byte <= 0xff)) {
         return encoded;
       }
@@ -6562,6 +6746,39 @@ class ShxCodec {
     }
     return const [0x3f];
   }
+
+  static String _decodeRadioTextBytes(List<int> bytes) {
+    final buffer = StringBuffer();
+    for (var index = 0; index < bytes.length;) {
+      final first = bytes[index];
+      if (first < 0x80) {
+        buffer.writeCharCode(first);
+        index += 1;
+        continue;
+      }
+      if (index + 1 >= bytes.length) {
+        buffer.write('?');
+        index += 1;
+        continue;
+      }
+      final second = bytes[index + 1];
+      final code = (first << 8) | second;
+      final override = _radioTextDecodeOverrides[code];
+      if (override != null) {
+        buffer.write(override);
+      } else {
+        buffer.write(charset.gbk.decode([first, second]));
+      }
+      index += 2;
+    }
+    return buffer.toString();
+  }
+
+  static const Map<String, List<int>> _radioTextEncodeOverrides = {
+    '梧': [0xce, 0xe0],
+  };
+
+  static const Map<int, String> _radioTextDecodeOverrides = {0xcee0: '梧'};
 
   static void _setChannelByFlatIndex(
     RadioAppData data,
