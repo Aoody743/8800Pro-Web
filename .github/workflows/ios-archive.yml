@@ -55,8 +55,9 @@ jobs:
           fi
 
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
-          xcodebuild -version
-          xcodebuild -version | grep -q '^Xcode 26\.'
+          XCODE_VERSION="$(xcodebuild -version)"
+          printf '%s\n' "$XCODE_VERSION"
+          grep -q '^Xcode 26\.' <<< "$XCODE_VERSION"
 
       - name: Validate certificate secrets
         env:
