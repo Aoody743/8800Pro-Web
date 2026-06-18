@@ -230,10 +230,11 @@ public enum Codec {
             payload[13] = UInt8(channel.pttID & 0x03)
         }
         payload[14] = UInt8(channel.txPower & 0x03)
-        payload[15] = UInt8((baseIsUsable && preserveUnknownFlags ? Int(payload[15]) & 0x03 : 0) |
-                            ((channel.bandwidth & 0x01) << 6) |
-                            ((channel.busyLock & 0x01) << 3) |
-                            ((channel.scanAdd & 0x01) << 2))
+        let preservedFlags = baseIsUsable && preserveUnknownFlags ? Int(payload[15]) & 0x03 : 0
+        let bandwidthFlag = (channel.bandwidth & 0x01) << 6
+        let busyLockFlag = (channel.busyLock & 0x01) << 3
+        let scanAddFlag = (channel.scanAdd & 0x01) << 2
+        payload[15] = UInt8(preservedFlags | bandwidthFlag | busyLockFlag | scanAddFlag)
         
         let nameData = encodeChannelName(channel.name, base: baseIsUsable ? payload : nil)
         payload.replaceSubrange(20..<(20 + nameData.count), with: nameData)
