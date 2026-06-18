@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>技术支持 - 8800Pro</title>
+    <meta
+      name="description"
+      content="8800Pro 应用技术支持页面，提供问题反馈和联系方式。"
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f8fb;
+        --panel: #ffffff;
+        --text: #172033;
+        --muted: #647084;
+        --border: #dbe2ee;
+        --accent: #1769e0;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f141d;
+          --panel: #151c28;
+          --text: #edf3ff;
+          --muted: #a8b3c5;
+          --border: #2b3547;
+          --accent: #75a7ff;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        line-height: 1.75;
+      }
+
+      main {
+        width: min(880px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 56px 0;
+      }
+
+      article {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: clamp(28px, 5vw, 56px);
+        box-shadow: 0 18px 50px rgba(20, 31, 53, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(30px, 5vw, 44px);
+        line-height: 1.15;
+      }
+
+      h2 {
+        margin: 34px 0 10px;
+        font-size: 20px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      .meta {
+        margin: 0 0 28px;
+        color: var(--muted);
+      }
+
+      .contact {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        margin-top: 8px;
+        padding: 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      footer {
+        margin-top: 28px;
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>技术支持</h1>
+        <p class="meta">适用于 8800Pro 应用及 8800.743.world 网站</p>
+
+        <p>
+          如果你在使用 8800Pro 时遇到蓝牙连接、读频、写频、备份恢复、文件导入导出或界面操作方面的问题，可以通过邮件联系技术支持。
+        </p>
+
+        <h2>联系方式</h2>
+        <p>
+          请发送邮件至
+          <a href="mailto:andyxecm@gmail.com">andyxecm@gmail.com</a>。为了更快定位问题，建议在邮件中附上设备型号、系统版本、应用版本、问题截图或错误日志。
+        </p>
+        <a class="contact" href="mailto:andyxecm@gmail.com">联系技术支持</a>
+
+        <h2>常见支持范围</h2>
+        <ul>
+          <li>应用安装、启动和权限设置问题。</li>
+          <li>蓝牙或写频线连接失败、读写频失败、写入后校验异常。</li>
+          <li>频率配置、信道区域、FM 收音机、备份和恢复相关问题。</li>
+          <li>App Store 审核、隐私政策或合规信息相关咨询。</li>
+        </ul>
+
+        <h2>响应说明</h2>
+        <p>
+          我们会尽量及时回复用户反馈。复杂问题可能需要更多日志、复现步骤或设备状态信息，请在操作前先备份已有频率配置。
+        </p>
+      </article>
+      <footer>8800Pro / 8800.743.world</footer>
+    </main>
+  </body>
+</html>
