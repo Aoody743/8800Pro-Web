@@ -6364,6 +6364,8 @@ class ShxCodec {
           payload.sublist(20, 32).contains(0) ? 0 : 0xff,
         ),
       );
+    } else {
+      payload.fillRange(20, 32, 0xff);
     }
     return payload;
   }
@@ -6396,10 +6398,7 @@ class ShxCodec {
   }
 
   static Uint8List _emptyChannel(Uint8List base, [int? address]) {
-    if (_isHeaderPolluted(base, address) || !_isValidBcdFrequency(base, 0)) {
-      return Uint8List(32)..fillRange(0, 32, 0xff);
-    }
-    return Uint8List.fromList(base);
+    return Uint8List(32)..fillRange(0, 32, 0xff);
   }
 
   static bool _isHeaderPolluted(Uint8List payload, [int? address]) {

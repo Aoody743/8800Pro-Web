@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:radio8800_mobile/main.dart';
@@ -78,6 +79,106 @@ void main() {
     expect(decoded.channels[0][0].rxTone, 'D023N');
     expect(decoded.channels[0][0].txTone, 'D754I');
   });
+
+  test(
+    'bluetooth write clears empty sibling slots instead of reviving raw data',
+    () {
+      final readData = RadioAppData.defaults();
+      readData.channels[0][0] = Channel(
+        id: 1,
+        rxFreq: '439.46250',
+        txFreq: '434.46250',
+        visible: true,
+      );
+      readData.channels[0][1] = Channel(
+        id: 2,
+        rxFreq: '438.50000',
+        txFreq: '433.50000',
+        name: '旧信道',
+        visible: true,
+      );
+      final rawBlock = ShxCodec.bluetoothWriteBlocks(
+        readData,
+      ).firstWhere((item) => item.address == 0x0000);
+
+      final next = RadioAppData.defaults();
+      next.rawBlocks['0000'] = rawBlock.payload.toList();
+      next.channels[0][0] = Channel(
+        id: 1,
+        rxFreq: '439.46250',
+        txFreq: '434.46250',
+        visible: true,
+      );
+
+      final writeBlock = ShxCodec.bluetoothWriteBlocks(
+        next,
+      ).firstWhere((item) => item.address == 0x0000);
+
+      expect(
+        writeBlock.payload.sublist(32, 64).every((byte) => byte == 0xff),
+        isTrue,
+      );
+
+      final decoded = RadioAppData.defaults();
+      ShxCodec.applyBlock(decoded, writeBlock.address, writeBlock.payload);
+      expect(decoded.channels[0][0].rxFreq, '439.46250');
+      expect(decoded.channels[0][1].visible, isFalse);
+      expect(decoded.channels[0][1].rxFreq, isEmpty);
+    },
+  );
+
+  test('bluetooth write clears channel names when the UI name is empty', () {
+    final readData = RadioAppData.defaults();
+    readData.channels[0][0] = Channel(
+      id: 1,
+      rxFreq: '439.46250',
+      txFreq: '434.46250',
+      name: '旧名字',
+      visible: true,
+    );
+    final rawBlock = ShxCodec.bluetoothWriteBlocks(
+      readData,
+    ).firstWhere((item) => item.address == 0x0000);
+
+    final next = RadioAppData.defaults();
+    next.rawBlocks['0000'] = rawBlock.payload.toList();
+    next.channels[0][0] = Channel(
+      id: 1,
+      rxFreq: '439.46250',
+      txFreq: '434.46250',
+      visible: true,
+    );
+
+    final writeBlock = ShxCodec.bluetoothWriteBlocks(
+      next,
+    ).firstWhere((item) => item.address == 0x0000);
+
+    expect(
+      writeBlock.payload.sublist(20, 32).every((byte) => byte == 0xff),
+      isTrue,
+    );
+
+    final decoded = RadioAppData.defaults();
+    ShxCodec.applyBlock(decoded, writeBlock.address, writeBlock.payload);
+    expect(decoded.channels[0][0].name, isEmpty);
+  });
+
+  test(
+    'header-polluted channel bytes are not re-emitted as active channels',
+    () {
+      final data = RadioAppData.defaults();
+      final polluted = Uint8List(64)..fillRange(0, 64, 0xff);
+      polluted.setRange(0, 4, const [0x57, 0x00, 0x40, 0x40]);
+
+      ShxCodec.applyBlock(data, 0x0040, polluted);
+
+      expect(data.visibleChannelCount, 0);
+      final channelBlocks = ShxCodec.bluetoothWriteBlocks(
+        data,
+      ).where((item) => item.address < 0x4000);
+      expect(channelBlocks, isEmpty);
+    },
+  );
 
   test('preserves DTMF PTT ID through json and radio blocks', () {
     final data = RadioAppData.defaults();
