@@ -47,6 +47,12 @@ export class Shx8800ProSession {
     return data
   }
 
+  async validateConnection() {
+    await this.handshake()
+    await this.transport.write(new Uint8Array([0x45]))
+    this.progress('done', undefined, 100)
+  }
+
   async writeRadio(data: AppData) {
     this.assertNotAborted()
     if (this.transport.kind === 'bluetooth') {

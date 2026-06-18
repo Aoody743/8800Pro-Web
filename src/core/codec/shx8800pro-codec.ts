@@ -82,12 +82,7 @@ export function encodeBlockForAddress(data: AppData, address: number) {
   if (address >= 0xa000 && address <= 0xa100) return encodeDtmfBlock(data, address, payload)
 
   if (address === SHX8800PRO.bankNameAAddress || address === SHX8800PRO.bankNameBAddress) {
-    const start = address === SHX8800PRO.bankNameAAddress ? 0 : 4
-    payload.fill(0xff)
-    for (let index = 0; index < 4; index += 1) {
-      payload.set(encodeRadioText(data.bankNames[start + index], 12), index * 16)
-    }
-    return payload
+    return encodeBankNameBlock(data, address, payload)
   }
 
   if (address === SHX8800PRO.fmAddress) {
@@ -259,6 +254,22 @@ function encodeChannelName(name: string, base?: Uint8Array) {
   }
   const fill = base?.slice(20, 32).some((value) => value === 0) ? 0 : 0xff
   return encodeRadioText(normalized, 12, fill)
+}
+
+function encodeBankNameBlock(data: AppData, address: number, base: Uint8Array) {
+  const payload = new Uint8Array(base)
+  if (!hasRawBlock(data, address)) payload.fill(0xff)
+  const start = address === SHX8800PRO.bankNameAAddress ? 0 : 4
+  for (let index = 0; index < 4; index += 1) {
+    const offset = index * 16
+    const name = data.bankNames[start + index].trim()
+    const currentName = hasRawBlock(data, address) ? decodeRadioText(payload, offset, 12) : ''
+    if (hasRawBlock(data, address) && (!name || name === currentName)) continue
+    const fill = payload.slice(offset, offset + 12).some((value) => value === 0) ? 0 : 0xff
+    payload.set(encodeRadioText(name, 12, fill), offset)
+    payload.fill(0xff, offset + 12, offset + 16)
+  }
+  return payload
 }
 
 function decodeChannel(payload: Uint8Array, id: number, blockAddress?: number): Channel {

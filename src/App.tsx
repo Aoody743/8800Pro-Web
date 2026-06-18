@@ -12,6 +12,8 @@ import {
   Image,
   ListChecks,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Radio,
   RotateCcw,
   Save,
@@ -59,6 +61,21 @@ const navItems: Array<{ id: ViewId; label: string; icon: ReactNode }> = [
   { id: 'debug', label: '日志', icon: <Database /> },
 ]
 
+const viewTitles: Record<ViewId, string> = {
+  dashboard: '总览',
+  channels: '信道',
+  vfo: 'VFO',
+  settings: '功能',
+  dtmf: 'DTMF',
+  fm: 'FM',
+  boot: '开机图',
+  satellite: '打星',
+  files: '文件',
+  guide: '教程',
+  about: '关于',
+  debug: '日志',
+}
+
 function App() {
   const [activeView, setActiveView] = useState<ViewId>('dashboard')
   const [uiMode, setUiMode] = useState<UiMode>('simple')
@@ -69,6 +86,7 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [backups, setBackups] = useState<BackupRecord[]>([])
   const [notice, setNotice] = useState<{ tone: 'idle' | 'ok' | 'warn'; text: string } | null>(null)
   const [channelEditorResetKey, setChannelEditorResetKey] = useState(0)
@@ -192,11 +210,22 @@ function App() {
         manualDisconnectRef.current = false
       }
       const next = new WebSerialTransport()
-      await next.open()
+      try {
+        await next.open()
+        const session = new Shx8800ProSession(next, {
+          onLog: addLog,
+          onProgress: setProgress,
+        })
+        await session.validateConnection()
+      } catch (error) {
+        await next.close().catch(() => undefined)
+        throw error
+      }
       setTransport(next)
       setReconnectAttempt(0)
-      setNotice({ tone: 'ok', text: 'USB 写频线已连接，可以先点“读频”。' })
-      addLog('USB 写频线已连接')
+      setProgress(null)
+      setNotice({ tone: 'ok', text: 'USB 写频线和对讲机握手成功，可以先点“读频”。' })
+      addLog('USB 写频线已连接，设备握手校验通过')
     })
   }
 
@@ -337,7 +366,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <button type="button" className="mobile-nav-toggle" onClick={() => setMobileNavOpen(true)} aria-label="打开导航">
         <Menu size={20} />
       </button>
@@ -369,6 +398,7 @@ function App() {
               key={item.id}
               type="button"
               className={activeView === item.id ? 'active' : ''}
+              title={item.label}
               onClick={() => switchView(item.id)}
             >
               {item.icon}
@@ -403,8 +433,23 @@ function App() {
 
       <main className="workspace">
         <header className="topbar">
-          <div>
-            <h1>{navItems.find((item) => item.id === activeView)?.label}</h1>
+          <div className="topbar-title">
+            <div className="topbar-controls">
+              <button type="button" className="icon-button topbar-icon" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? '展开菜单栏' : '收起菜单栏'}>
+                {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+              </button>
+              <div className="mode-switch top-mode-switch" role="tablist" aria-label="界面模式">
+                <button type="button" className={uiMode === 'simple' ? 'active' : ''} onClick={() => switchUiMode('simple')} title="基础模式">
+                  <ListChecks size={16} />
+                  <span>基础</span>
+                </button>
+                <button type="button" className={uiMode === 'pro' ? 'active' : ''} onClick={() => switchUiMode('pro')} title="高级模式">
+                  <SlidersHorizontal size={16} />
+                  <span>高级</span>
+                </button>
+              </div>
+            </div>
+            <h1>{viewTitles[activeView]}</h1>
             <p>网页多功能控制台</p>
           </div>
           <div className="connection-strip">
@@ -1746,27 +1791,51 @@ function FilesPanel({
   }
 
   const latestBackup = backups[0]
+  const configuredBanks = data.channels.filter((bank) => bank.some((channel) => channel.visible && channel.rxFreq)).length
+  const visibleChannels = countVisibleChannels(data)
+
+  async function saveSnapshot() {
+    const record = await saveBackup(data, '手动频率快照')
+    await refreshBackups()
+    addLog(`已保存频率快照：${record.title}`)
+  }
+
+  function restoreSnapshot(backup: BackupRecord) {
+    const restored = cloneAppData(backup.data)
+    setData(() => restored)
+    setBaselineData(cloneAppData(restored))
+    addLog(`已恢复频率快照：${backup.reason}`)
+  }
 
   return (
-    <div className="feature-grid">
-      <section className="panel">
+    <div className="feature-grid files-layout">
+      <section className="panel snapshot-workbench">
         <div className="panel-heading">
           <div>
-            <h3>文件工作台</h3>
-            <p>JSON 适合整机备份，Excel 和 CSV 适合只处理信道表。</p>
+            <h3>频率快照</h3>
+            <p>把当前 8800Pro 配置保存成一个可恢复的时间点；写频前后、批量导入前都建议手动存一份。</p>
+          </div>
+          <button type="button" className="primary-button" onClick={() => void saveSnapshot()}>
+            <Save size={18} />
+            保存快照
+          </button>
+        </div>
+        <div className="snapshot-hero">
+          <div>
+            <span>当前配置</span>
+            <strong>{statsLikeDate(data.updatedAt)}</strong>
+            <p>{visibleChannels} 个有效信道，覆盖 {configuredBanks} 个区域；当前与基准有 {diffSummary.totalChanges} 项待写入差异。</p>
+          </div>
+          <div className="snapshot-metrics">
+            <span>快照 <strong>{backups.length}</strong></span>
+            <span>最近 <strong>{latestBackup ? statsLikeDate(latestBackup.createdAt) : '暂无'}</strong></span>
           </div>
         </div>
         <div className="beginner-banner">
-          <strong>恢复很简单</strong>
-          <span>只要读频、写频做过一次，这里通常就已经有备份了。写错也不用怕，点“恢复”就能回去。</span>
+          <strong>建议流程</strong>
+          <span>读频后保存快照，批量导入或写频前再保存快照。写错时恢复快照，再重新写回设备即可。</span>
         </div>
-        <div className="summary-list compact-list">
-          <span>当前配置 <strong>{new Date(data.updatedAt).toLocaleString()}</strong></span>
-          <span>最近备份 <strong>{latestBackup ? new Date(latestBackup.createdAt).toLocaleString() : '暂无'}</strong></span>
-          <span>已保存版本 <strong>{backups.length} 份</strong></span>
-          <span>待写入差异 <strong>{diffSummary.totalChanges} 项</strong></span>
-        </div>
-        <div className="action-grid">
+        <div className="action-grid snapshot-actions">
           <button type="button" className="primary-button" onClick={() => downloadJson(data)}>
             <FileDown size={18} />
             导出 JSON
@@ -1795,36 +1864,28 @@ function FilesPanel({
         </div>
         <DiffSummaryStrip summary={diffSummary} />
       </section>
-      <section className="panel">
+      <section className="panel snapshot-list-panel">
         <div className="panel-heading">
           <div>
-            <h3>版本时间线</h3>
-            <p>读频前、写频前和手动保存的恢复点都会出现在这里。</p>
+            <h3>快照列表</h3>
+            <p>自动快照和手动快照都在这里，恢复后会成为新的基准配置。</p>
           </div>
-          <button type="button" className="ghost-button" onClick={() => void saveBackup(data, '手动备份').then(refreshBackups)}>
-            立即备份
-          </button>
         </div>
-        <div className="backup-list">
+        <div className="backup-list snapshot-list">
           {backups.map((backup) => (
             <article key={backup.id} className="backup-card">
               <div className="backup-main">
-                <strong>{backup.reason}</strong>
+                <strong>{backup.reason.replace('备份', '快照')}</strong>
                 <span>{new Date(backup.createdAt).toLocaleString()}</span>
                 <small>{backup.title}</small>
               </div>
               <div className="backup-actions">
-                <button type="button" onClick={() => {
-                  const restored = cloneAppData(backup.data)
-                  setData(() => restored)
-                  setBaselineData(cloneAppData(restored))
-                  addLog(`已恢复备份：${backup.reason}`)
-                }}>恢复</button>
+                <button type="button" onClick={() => restoreSnapshot(backup)}>恢复快照</button>
                 <button type="button" onClick={() => void deleteBackup(backup.id).then(refreshBackups)}>删除</button>
               </div>
             </article>
           ))}
-          {backups.length === 0 && <div className="channel-empty">还没有备份，先读频或点一次“立即备份”。</div>}
+          {backups.length === 0 && <div className="channel-empty">还没有快照，先读频或点一次“保存快照”。</div>}
         </div>
       </section>
     </div>
@@ -2252,6 +2313,17 @@ function formatDiffValue(value: unknown) {
   if (Array.isArray(value)) return `${value.length} 项`
   const text = String(value)
   return text.length > 80 ? `${text.slice(0, 80)}...` : text
+}
+
+function statsLikeDate(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知时间'
+  return date.toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function wait(ms: number) {

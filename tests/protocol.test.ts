@@ -303,6 +303,10 @@ applyBlockToAppData(rawPreserveData, 0xa200, rawBankNames)
 assert.equal(rawPreserveData.bankNames[0], '')
 assert.equal(rawPreserveData.bankNames[1], '中继台')
 assert.deepEqual(Array.from(encodeBlockForAddress(rawPreserveData, 0xa200)), Array.from(rawBankNames))
+rawPreserveData.bankNames[1] = ''
+assert.deepEqual(Array.from(encodeBlockForAddress(rawPreserveData, 0xa200).slice(16, 28)), Array.from(rawBankNames.slice(16, 28)))
+rawPreserveData.bankNames[1] = '新区域'
+assert.equal(decodeRadioText(encodeBlockForAddress(rawPreserveData, 0xa200), 16, 12), '新区域')
 
 const rawChannelNameData = createDefaultAppData()
 const rawChannelNameBlock = new Uint8Array(64).fill(0xff)
