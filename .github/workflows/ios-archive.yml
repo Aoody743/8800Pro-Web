@@ -1,0 +1,140 @@
+name: iOS Archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    name: Build xcarchive with Xcode 26.5
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    env:
+      PROJECT_PATH: app8800pro/app8800pro.xcodeproj
+      SCHEME: app8800pro
+      ARCHIVE_PATH: build/app8800pro.xcarchive
+      KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.5
+        run: |
+          set -euo pipefail
+          echo "Installed Xcode apps:"
+          ls -1 /Applications | grep '^Xcode' || true
+
+          XCODE_APP=""
+          for candidate in \
+            /Applications/Xcode_26.5.app \
+            /Applications/Xcode_26.5.0.app \
+            /Applications/Xcode-26.5.app
+          do
+            if [ -d "$candidate" ]; then
+              XCODE_APP="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::GitHub runner does not have Xcode 26.5 installed."
+            exit 1
+          fi
+
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -version | grep -q '^Xcode 26\.5'
+
+      - name: Validate certificate secrets
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in BUILD_CERTIFICATE_BASE64 P12_PASSWORD KEYCHAIN_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing signing secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Import signing certificate and optional profile
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="${RUNNER_TEMP}/build_certificate.p12"
+
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          if [ -n "${BUILD_PROVISION_PROFILE_BASE64:-}" ]; then
+            PP_PATH="${RUNNER_TEMP}/profile.mobileprovision"
+            echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PP_PATH"
+            mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(security cms -D -i "$PP_PATH")")
+            cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(security cms -D -i "$PP_PATH")")
+            echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=manual" >> "$GITHUB_ENV"
+          else
+            echo "::warning::IOS_PROVISION_PROFILE_BASE64 is missing. Building unsigned xcarchive."
+            echo "SIGNING_MODE=unsigned" >> "$GITHUB_ENV"
+          fi
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ "$SIGNING_MODE" = "manual" ]; then
+            xcodebuild archive \
+              -project "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
+              -archivePath "$ARCHIVE_PATH" \
+              DEVELOPMENT_TEAM=U464K5924C \
+              CODE_SIGN_STYLE=Manual \
+              PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+              clean archive
+          else
+            xcodebuild archive \
+              -project "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
+              -archivePath "$ARCHIVE_PATH" \
+              CODE_SIGNING_ALLOWED=NO \
+              clean archive
+          fi
+
+      - name: Package xcarchive
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent "$ARCHIVE_PATH" build/app8800pro.xcarchive.zip
+
+      - name: Upload xcarchive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app8800pro-xcarchive
+          path: build/app8800pro.xcarchive.zip
+          if-no-files-found: error
+          retention-days: 7

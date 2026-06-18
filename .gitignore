@@ -23,6 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Xcode local state
+xcuserdata/
+*.xcuserstate
+*.swift.backup
+
 # Local radio dumps and generated artifacts
 radio-*.json
 radio-*.bin
