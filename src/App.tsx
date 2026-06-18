@@ -38,7 +38,7 @@ import { Shx8800ProSession, type BluetoothWriteMode, type SessionProgress } from
 import { WebBluetoothTransport } from './transport/web-bluetooth-transport'
 import { WebSerialTransport } from './transport/web-serial-transport'
 import type { RadioTransport } from './transport/transport'
-import { deleteBackup, listBackups, saveBackup, type BackupRecord } from './lib/backup'
+import { deleteBackup, listBackups, saveBackup, updateBackupTitle, type BackupRecord } from './lib/backup'
 import { downloadJson, exportCsv, exportExcel, importExcel, loadJsonFile } from './lib/import-export'
 import { loadBootImage } from './lib/boot-image'
 import { buildChannelFromRepeater, createFallbackRepeaterPackage, describeRepeater, loadRepeaterLibrary, type RepeaterEntry, type RepeaterLibraryPackage } from './lib/repeaters'
@@ -138,6 +138,14 @@ function App() {
   const addLog = useCallback((line: string) => {
     setLogs((current) => [`${new Date().toLocaleTimeString()}  ${line}`, ...current].slice(0, 300))
   }, [])
+
+  async function saveAutomaticBackup(snapshot: AppData, reason: string) {
+    if (countVisibleChannels(snapshot) === 0) {
+      addLog(`已跳过自动备份：${reason}（没有有效信道）`)
+      return null
+    }
+    return saveBackup(snapshot, reason)
+  }
 
   useEffect(() => {
     busyRef.current = busy
@@ -273,7 +281,7 @@ function App() {
   async function readRadio() {
     if (!transport) return
     await withBusy(async () => {
-      await saveBackup(data, '读频前自动备份')
+      await saveAutomaticBackup(data, '读频前自动备份')
       await refreshBackups()
       const abort = new AbortController()
       abortRef.current = abort
@@ -288,7 +296,7 @@ function App() {
       setChannelEditorResetKey((key) => key + 1)
       setActiveView('channels')
       setNotice({ tone: 'ok', text: `读频完成，已切换到 ${next.bankNames[getPreferredBankIndex(next)]}。` })
-      await saveBackup(next, '读频完成')
+      await saveAutomaticBackup(next, '读频完成')
       await refreshBackups()
       addLog('读频完成')
     })
@@ -306,7 +314,7 @@ function App() {
   async function performWriteRadio(mode: BluetoothWriteMode = 'official') {
     if (!transport) return
     await withBusy(async () => {
-      await saveBackup(data, '写频前自动备份')
+      await saveAutomaticBackup(data, '写频前自动备份')
       await refreshBackups()
       const abort = new AbortController()
       abortRef.current = abort
@@ -2010,6 +2018,9 @@ function FilesPanel({
   diffSummary: AppDataDiffSummary
   onOpenDiff: () => void
 }) {
+  const [editingBackupId, setEditingBackupId] = useState('')
+  const [editingBackupTitle, setEditingBackupTitle] = useState('')
+
   async function importJson(file: File | undefined) {
     if (!file) return
     const next = await loadJsonFile(file)
@@ -2040,6 +2051,21 @@ function FilesPanel({
     setData(() => restored)
     setBaselineData(cloneAppData(restored))
     addLog(`已恢复频率快照：${backup.reason}`)
+  }
+
+  function startRenameSnapshot(backup: BackupRecord) {
+    setEditingBackupId(backup.id)
+    setEditingBackupTitle(backup.title)
+  }
+
+  async function saveSnapshotTitle(backup: BackupRecord) {
+    const nextTitle = editingBackupTitle.trim()
+    if (!nextTitle) return
+    const next = await updateBackupTitle(backup.id, nextTitle)
+    setEditingBackupId('')
+    setEditingBackupTitle('')
+    await refreshBackups()
+    addLog(`已重命名频率快照：${next.title}`)
   }
 
   return (
@@ -2107,19 +2133,58 @@ function FilesPanel({
           </div>
         </div>
         <div className="backup-list snapshot-list">
-          {backups.map((backup) => (
-            <article key={backup.id} className="backup-card">
-              <div className="backup-main">
-                <strong>{backup.reason.replace('备份', '快照')}</strong>
-                <span>{new Date(backup.createdAt).toLocaleString()}</span>
-                <small>{backup.title}</small>
-              </div>
-              <div className="backup-actions">
-                <button type="button" onClick={() => restoreSnapshot(backup)}>恢复快照</button>
-                <button type="button" onClick={() => void deleteBackup(backup.id).then(refreshBackups)}>删除</button>
-              </div>
-            </article>
-          ))}
+          {backups.map((backup) => {
+            const isEditing = editingBackupId === backup.id
+            return (
+              <article key={backup.id} className="backup-card">
+                <div className="backup-main">
+                  <strong>{backup.reason.replace('备份', '快照')}</strong>
+                  <span>{new Date(backup.createdAt).toLocaleString()}</span>
+                  {isEditing ? (
+                    <label className="backup-title-editor">
+                      <span>快照名称</span>
+                      <input
+                        value={editingBackupTitle}
+                        maxLength={80}
+                        onChange={(event) => setEditingBackupTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void saveSnapshotTitle(backup)
+                          if (event.key === 'Escape') {
+                            setEditingBackupId('')
+                            setEditingBackupTitle('')
+                          }
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <small>{backup.title}</small>
+                  )}
+                </div>
+                <div className="backup-actions">
+                  {isEditing ? (
+                    <>
+                      <button type="button" onClick={() => void saveSnapshotTitle(backup)} disabled={!editingBackupTitle.trim()}>保存名称</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingBackupId('')
+                          setEditingBackupTitle('')
+                        }}
+                      >
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => restoreSnapshot(backup)}>恢复快照</button>
+                      <button type="button" onClick={() => startRenameSnapshot(backup)}>编辑名称</button>
+                      <button type="button" onClick={() => void deleteBackup(backup.id).then(refreshBackups)}>删除</button>
+                    </>
+                  )}
+                </div>
+              </article>
+            )
+          })}
           {backups.length === 0 && <div className="channel-empty">还没有快照，先读频或点一次“保存快照”。</div>}
         </div>
       </section>

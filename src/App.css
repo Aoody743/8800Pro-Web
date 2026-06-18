@@ -2149,6 +2149,32 @@
   font-size: 11px;
 }
 
+.backup-title-editor {
+  display: grid;
+  gap: 4px;
+}
+
+.backup-title-editor span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.backup-title-editor input {
+  width: min(360px, 100%);
+  min-height: 34px;
+  padding: 7px 9px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.backup-title-editor input:focus {
+  outline: 2px solid rgba(13, 111, 120, 0.18);
+  border-color: var(--primary);
+}
+
 .backup-actions {
   flex: 0 0 auto;
   display: flex;

@@ -45,3 +45,15 @@ export async function deleteBackup(id: string) {
   const db = await database()
   await db.delete(STORE, id)
 }
+
+export async function updateBackupTitle(id: string, title: string) {
+  const db = await database()
+  const record = (await db.get(STORE, id)) as BackupRecord | undefined
+  if (!record) throw new Error('备份不存在')
+  const next: BackupRecord = {
+    ...record,
+    title: title.trim() || record.title,
+  }
+  await db.put(STORE, next)
+  return next
+}
