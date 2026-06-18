@@ -11,6 +11,7 @@ import {
   FileUp,
   Image,
   ListChecks,
+  Menu,
   Radio,
   RotateCcw,
   Save,
@@ -22,6 +23,7 @@ import {
   Trash2,
   Upload,
   Waves,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import './App.css'
@@ -65,12 +67,17 @@ function App() {
   const [progress, setProgress] = useState<SessionProgress | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [backups, setBackups] = useState<BackupRecord[]>([])
   const [notice, setNotice] = useState<{ tone: 'idle' | 'ok' | 'warn'; text: string } | null>(null)
   const [channelEditorResetKey, setChannelEditorResetKey] = useState(0)
   const [baselineData, setBaselineData] = useState<AppData>(() => cloneAppData(createDefaultAppData()))
   const [diffReviewMode, setDiffReviewMode] = useState<'write' | 'view' | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const busyRef = useRef(false)
+  const reconnectingRef = useRef(false)
+  const manualDisconnectRef = useRef(false)
   const showBeian = import.meta.env.MODE === 'server'
 
   useEffect(() => {
@@ -98,6 +105,12 @@ function App() {
     if (mode === 'simple' && !['dashboard', 'channels', 'settings', 'files', 'guide', 'debug'].includes(activeView)) {
       setActiveView('dashboard')
     }
+    setMobileNavOpen(false)
+  }
+
+  function switchView(view: ViewId) {
+    setActiveView(view)
+    setMobileNavOpen(false)
   }
 
   async function refreshBackups() {
@@ -109,22 +122,61 @@ function App() {
   }, [])
 
   useEffect(() => {
+    busyRef.current = busy
+  }, [busy])
+
+  useEffect(() => {
     if (!transport) return
     let cancelled = false
 
-    const syncConnection = () => {
-      if (cancelled || !transport) return
-      if (transport.isConnected()) return
+    const syncConnection = async () => {
+      if (cancelled || manualDisconnectRef.current || reconnectingRef.current) return
+      if (transport.isConnected()) {
+        setReconnectAttempt(0)
+        return
+      }
+      if (busyRef.current) return
+      if (!transport.reopen) {
+        markDisconnected('设备断开连接，当前状态已切换为未连接。')
+        return
+      }
+
+      reconnectingRef.current = true
+      for (let attempt = 1; attempt <= 3 && !cancelled; attempt += 1) {
+        setReconnectAttempt(attempt)
+        setNotice({ tone: 'warn', text: `设备临时断开，正在自动重连（${attempt}/3）。` })
+        addLog(`设备断开，正在自动重连（${attempt}/3）`)
+        try {
+          await wait(attempt === 1 ? 650 : 1200)
+          await transport.reopen()
+          if (transport.isConnected()) {
+            setReconnectAttempt(0)
+            setNotice({ tone: 'ok', text: '设备已自动重连，可以继续读频或写频。' })
+            addLog('设备已自动重连')
+            reconnectingRef.current = false
+            return
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '未知错误'
+          addLog(`自动重连失败（${attempt}/3）：${message}`)
+        }
+      }
+      reconnectingRef.current = false
+      if (!cancelled) markDisconnected('自动重连 3 次失败，已切换为未连接。')
+    }
+
+    const markDisconnected = (message: string) => {
       abortRef.current?.abort()
       setBusy(false)
       setProgress(null)
       setTransport(null)
-      setNotice({ tone: 'warn', text: '设备断开连接，当前状态已切换为未连接。' })
+      setReconnectAttempt(0)
+      setNotice({ tone: 'warn', text: message })
       addLog('设备断开连接，已切换为未连接')
     }
 
-    syncConnection()
-    const timer = window.setInterval(syncConnection, 1000)
+    void syncConnection()
+    const timer = window.setInterval(() => void syncConnection(), 1000)
     return () => {
       cancelled = true
       window.clearInterval(timer)
@@ -133,10 +185,16 @@ function App() {
 
   async function connectSerial() {
     await withBusy(async () => {
-      await transport?.close()
+      manualDisconnectRef.current = true
+      try {
+        await transport?.close()
+      } finally {
+        manualDisconnectRef.current = false
+      }
       const next = new WebSerialTransport()
       await next.open()
       setTransport(next)
+      setReconnectAttempt(0)
       setNotice({ tone: 'ok', text: 'USB 写频线已连接，可以先点“读频”。' })
       addLog('USB 写频线已连接')
     })
@@ -144,20 +202,30 @@ function App() {
 
   async function connectBluetooth() {
     await withBusy(async () => {
-      await transport?.close()
+      manualDisconnectRef.current = true
+      try {
+        await transport?.close()
+      } finally {
+        manualDisconnectRef.current = false
+      }
       const next = new WebBluetoothTransport()
       await next.open()
       setTransport(next)
+      setReconnectAttempt(0)
       setNotice({ tone: 'ok', text: '蓝牙已连接。第一次正式整机读写仍建议优先用 USB。' })
       addLog('蓝牙 FFE0/FFE1 已连接，8800Pro 写入仍需回读校验')
     })
   }
 
   async function disconnect() {
+    manualDisconnectRef.current = true
     await transport?.close()
     setTransport(null)
+    setReconnectAttempt(0)
     setNotice({ tone: 'idle', text: '设备已断开。重新连接后可以继续读频或写频。' })
     addLog('设备连接已断开')
+    await wait(120)
+    manualDisconnectRef.current = false
   }
 
   async function readRadio() {
@@ -254,17 +322,38 @@ function App() {
     addLog('已请求取消当前操作')
   }
 
+  if (!transport) {
+    return (
+      <ConnectionGate
+        busy={busy}
+        notice={notice}
+        stats={stats}
+        reconnectAttempt={reconnectAttempt}
+        showBeian={showBeian}
+        onConnectSerial={() => void connectSerial()}
+        onConnectBluetooth={() => void connectBluetooth()}
+      />
+    )
+  }
+
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <button type="button" className="mobile-nav-toggle" onClick={() => setMobileNavOpen(true)} aria-label="打开导航">
+        <Menu size={20} />
+      </button>
+      {mobileNavOpen ? <button type="button" className="mobile-nav-scrim" aria-label="关闭导航" onClick={() => setMobileNavOpen(false)} /> : null}
+      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">
             <img src={hamLogo} alt="8800Pro Web logo" />
           </div>
-          <div>
+          <div className="brand-copy">
             <strong>8800Pro Web</strong>
             <span>网页对讲机控制系统</span>
           </div>
+          <button type="button" className="mobile-nav-close" onClick={() => setMobileNavOpen(false)} aria-label="关闭导航">
+            <X size={18} />
+          </button>
         </div>
         <div className="mode-switch" role="tablist" aria-label="界面模式">
           <button type="button" className={uiMode === 'simple' ? 'active' : ''} onClick={() => switchUiMode('simple')}>
@@ -280,7 +369,7 @@ function App() {
               key={item.id}
               type="button"
               className={activeView === item.id ? 'active' : ''}
-              onClick={() => setActiveView(item.id)}
+              onClick={() => switchView(item.id)}
             >
               {item.icon}
               <span>{item.label}</span>
@@ -294,7 +383,7 @@ function App() {
           </div>
         )}
         <div className="sidebar-footer">
-          <button type="button" className="about-card" onClick={() => setActiveView('about')}>
+          <button type="button" className="about-card" onClick={() => switchView('about')}>
             <strong>BG7OWW</strong>
             <SquareArrowOutUpRight size={16} />
           </button>
@@ -405,6 +494,75 @@ function App() {
         }}
       />
     </div>
+  )
+}
+
+function ConnectionGate({
+  busy,
+  notice,
+  stats,
+  reconnectAttempt,
+  showBeian,
+  onConnectSerial,
+  onConnectBluetooth,
+}: {
+  busy: boolean
+  notice: { tone: 'idle' | 'ok' | 'warn'; text: string } | null
+  stats: { serialSupported: boolean; bluetoothSupported: boolean }
+  reconnectAttempt: number
+  showBeian: boolean
+  onConnectSerial: () => void
+  onConnectBluetooth: () => void
+}) {
+  return (
+    <main className="connection-gate">
+      <section className="connection-stage" aria-label="连接设备">
+        <div className="connection-orbit" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
+        <div className="connection-brand">
+          <div className="brand-mark">
+            <img src={hamLogo} alt="8800Pro Web logo" />
+          </div>
+          <span>8800Pro Web</span>
+        </div>
+        <div className="connection-copy">
+          <h1>先连接设备</h1>
+          <p>选择蓝牙或 USB 写频线，连接成功后进入读频、编辑和写频控制台。</p>
+        </div>
+        <div className="connection-actions">
+          <button type="button" className="connect-choice bluetooth" onClick={onConnectBluetooth} disabled={busy || !stats.bluetoothSupported}>
+            <Bluetooth size={28} />
+            <strong>{busy ? '连接中' : '蓝牙连接'}</strong>
+            <span>{stats.bluetoothSupported ? '适合无线读写频' : '当前浏览器不支持 Web Bluetooth'}</span>
+          </button>
+          <button type="button" className="connect-choice serial" onClick={onConnectSerial} disabled={busy || !stats.serialSupported}>
+            <Cable size={28} />
+            <strong>USB 写频线</strong>
+            <span>{stats.serialSupported ? '适合首次备份和稳定写入' : '当前浏览器不支持 Web Serial'}</span>
+          </button>
+        </div>
+        <p className="connection-compat">移动端连接请使用 Android Chrome / Edge。iOS / iPadOS 版浏览器目前不提供本项目需要的 Web Bluetooth GATT 或 Web Serial API，可以浏览、编辑和导入导出配置，但不能直接连接 8800Pro。</p>
+        {notice ? <OperationNotice tone={notice.tone} text={notice.text} /> : null}
+        {reconnectAttempt > 0 ? <p className="connection-footnote">正在自动重连：{reconnectAttempt}/3</p> : null}
+        <footer className="connection-footer">
+          <strong>Made by BG7OWW</strong>
+          {showBeian ? (
+            <div className="beian-links connection-beian">
+              <a href="https://beian.miit.gov.cn/" rel="noreferrer" target="_blank">
+                <span>粤ICP备2023143201号</span>
+              </a>
+              <a href="https://beian.mps.gov.cn/#/query/webSearch?code=44011302005027" rel="noreferrer" target="_blank">
+                <img src="https://img.743.world/i/2026/03/25/124l7ch.webp" alt="公安备案图标" />
+                <span>粤公网安备44011302005027号</span>
+              </a>
+            </div>
+          ) : null}
+        </footer>
+      </section>
+    </main>
   )
 }
 
@@ -1740,7 +1898,11 @@ function GuidePanel({ setActiveView }: { setActiveView: (view: ViewId) => void }
 function AboutPanel() {
   return (
     <section className="panel about-panel">
-      <h3>关于</h3>
+      <div className="about-hero">
+        <span>BG7OWW / 8800Pro Web</span>
+        <h2>官方之外，目前已知市面上唯一可以完成 8800Pro 蓝牙写频的网页程序</h2>
+        <p>它不是一个普通表格编辑器，而是一套在真实手台、官方软件、社区项目和浏览器 API 之间反复校验出来的 8800Pro 专用读写频工具。</p>
+      </div>
       <div className="about-copy">
         <p>本项目由BG7OWW制作，旨在通过方便访问的网页让各位HAM们更加方便的操作森海克斯8800Pro的各项功能，部分功能实现来自Github上的开源项目</p>
         <p>如果有任何问题，请联系微信：samaaw1012</p>
@@ -1760,13 +1922,19 @@ function AboutPanel() {
         </p>
 
         <h4>技术实现</h4>
-        <p>8800Pro Web 的写频链路不是照着一份完整文档做出来的，而是一步步从开源项目、官方写频软件、APK 行为和真实机器响应里拼出来的。最开始先借助社区项目确认信道、VFO、功能设置、DTMF、区域名称和 FM 收音机大概落在哪些地址，再把这些规则整理成浏览器里可测试的 TypeScript 编解码器。</p>
-        <p>线写频部分相对清晰一些：通过 USB 串口反复对照握手、读块、写块和结束指令，确认 `PROGRAMSHXPU`、ACK、`52 addr 40` 读帧、`57 addr 40` 写帧和 64 字节数据区的关系。页面读频时会保存原始块，写回时只改已经识别的字段，尽量保留暂时没完全命名的机器设置。</p>
-        <p>蓝牙写频则更像实机摸索：先确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索、官方 iOS 应用的 RadioKit 框架和手台读回内容逐块比对。最关键的一步，是发现乱码频率并不是 FFE1 本身不能写，而是连续地址块不能把第二个 `57 addr 40` 帧头也发给机器；设备在这时正等 64 字节数据，帧头会直接落进信道区，于是出现 `404.00657`、`412.00757` 这类带 `57` 痕迹的频率。现在蓝牙写频会区分两种情况：连续 `+0x40` 的双块只发一个 header 后连续送两段 64 字节数据，不连续的配置块才按两个完整写帧发送。</p>
-        <p>这些经验现在都沉到协议层和测试里：频率、中文信道名、亚音、VFO、功能设置、开机图限制、空信道填充和蓝牙基础写入都会被覆盖。界面看起来是网页，底下其实是一套围绕 8800Pro 内存块逐步校验出来的专用工具。</p>
+        <p>8800Pro Web 的写频链路不是照着一份完整文档做出来的，而是一步步从开源项目、官方写频软件、APK 行为和真实机器响应里拼出来的。最早只能确定这台机器大概使用森海克斯家族的写频习惯：进入编程模式、按地址读 64 字节内存块、再把同样长度的数据写回。真正困难的是，没有一份公开资料告诉我们每个字段在哪里、蓝牙和写频线是不是同一套协议、哪些字节能改、哪些字节必须保留。</p>
+        <p>第一阶段是“找地图”。项目先参考社区开源实现，把信道、VFO、功能设置、DTMF、区域名称和 FM 收音机的大致地址范围标出来；再把每一次 USB 读频得到的原始块保存下来，对照网页里显示的频率、亚音、名称、区域和功能选项，一点点把二进制数据翻译成可编辑字段。频率是 BCD，中文名称是 GB2312，亚音和 DCS 又是另一套编码。看起来只是表单里几个输入框，背后每一个字段都要能往返编码，读出来和写回去必须一致。</p>
+        <p>线写频部分相对像“修一条路”：通过 USB 串口反复对照握手、读块、写块和结束指令，确认 `PROGRAMSHXPU`、ACK、`52 addr 40` 读帧、`57 addr 40` 写帧和 64 字节数据区的关系。网页读频时会保存完整原始镜像，写回时只改已经识别的字段，暂时没完全命名的机器设置会尽量原样保留。这一点很关键，因为对讲机不是普通数据库，很多未知位一旦被清空，表面看不出来，实际机器状态可能已经变了。</p>
+        <p>蓝牙写频则更像在黑箱旁边一点点听回声。先要确认设备广播名和 FFE0/FFE1 特征值，再用 Web Bluetooth、CoreBluetooth 小脚本、APK 线索、官方 iOS 应用里的 RadioKit 框架和手台读回内容逐块比对。期间最大的陷阱，是浏览器能成功写入特征值并不等于机器按预期解释了这段数据；曾经出现过写完以后机器里冒出一串 `404.00657`、`412.00757` 的怪频率。最后通过实机读回定位到，污染不是随机数，而是 `57 addr 40` 这种帧头被当成信道数据写进了内存。</p>
+        <p>真正让蓝牙写频稳定下来的，是发现连续地址块和普通配置块不能用同一种发送方式：连续 `+0x40` 的双块必须只发一个 `57 addr 40` header，然后连续送两段 64 字节 payload；不连续的配置块才按完整 68 字节写帧发送。这个细节如果错了，ACK 可能仍然回来，但内存已经被写歪。现在协议层会专门区分连续信道块、DTMF 块和普通配置块，并配合写前备份、读回校验、空信道清理和原始字节保留，尽量让浏览器蓝牙写频接近官方 App 的稳定性。</p>
+        <p>所以这个网页看起来只是一个安静的控制台，底下其实是一套围绕 8800Pro 内存块反复试错出来的专用工具：从开源项目得到第一张草图，从 APK 和官方软件里找行为线索，再用真实手台一遍遍读、写、回读、对比，直到线写频和蓝牙写频都能被同一套编解码器解释清楚。能把这件事放进网页里运行，靠的是社区资料、浏览器硬件 API、持续备份和大量实机验证叠在一起。</p>
 
         <h4>更新日志</h4>
         <div className="changelog">
+          <p><strong>连接入口重做</strong> 未连接时只显示全屏连接界面，先选择蓝牙或 USB，连接成功后再进入完整控制台。</p>
+          <p><strong>断线自动恢复</strong> 设备重启或短暂断开时会自动尝试重连 3 次，失败后才提示回到未连接状态。</p>
+          <p><strong>信道名称保留</strong> 写回信道时优先保留原机名称字节，避免未修改名称时被空值或不同填充方式覆盖。</p>
+          <p><strong>全局交互动效</strong> 增加连接页、面板、列表、按钮和进度条的动效，并遵循系统减少动态设置。</p>
           <p><strong>修复蓝牙写频帧污染</strong> 实机确认连续地址块必须使用 `header + data + data` 的流式写法；网页已停止给第二个连续块发送帧头，避免 `57 addr 40` 落入信道或 DTMF 数据。</p>
           <p><strong>官方链路对照</strong> 通过官方 iOS 应用的 RadioKit 框架和本地 CoreBluetooth 实机测试，确认 8800Pro 读写频主链路仍走 FFE1，FF31/FF32 不是普通读写块的替代通道。</p>
           <p><strong>回读保护</strong> 蓝牙写频完成后建议立即读频，页面会继续保留写频前自动备份，方便发现异常时回退。</p>
@@ -2084,6 +2252,10 @@ function formatDiffValue(value: unknown) {
   if (Array.isArray(value)) return `${value.length} 项`
   const text = String(value)
   return text.length > 80 ? `${text.slice(0, 80)}...` : text
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 export default App

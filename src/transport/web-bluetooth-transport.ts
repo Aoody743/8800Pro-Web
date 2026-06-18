@@ -23,6 +23,24 @@ export class WebBluetoothTransport implements RadioTransport {
       filters: [{ name: SHX8800PRO.bluetoothName }, { services: [SHX8800PRO.bluetoothService] }],
       optionalServices: [SHX8800PRO.bluetoothService],
     })
+    await this.openCurrentDevice()
+  }
+
+  async reopen() {
+    if (!this.device) throw new Error('蓝牙设备未授权')
+    if (this.characteristic) {
+      this.characteristic.removeEventListener('characteristicvaluechanged', this.handleChanged)
+      await this.characteristic.stopNotifications().catch(() => undefined)
+    }
+    this.characteristic = undefined
+    this.connected = false
+    this.queue.clear()
+    await sleep(500)
+    await this.openCurrentDevice()
+  }
+
+  private async openCurrentDevice() {
+    if (!this.device) throw new Error('蓝牙设备未授权')
     const server = await this.device.gatt?.connect()
     if (!server) throw new Error('蓝牙 GATT 连接失败')
     const service = await server.getPrimaryService(SHX8800PRO.bluetoothService)
@@ -30,6 +48,7 @@ export class WebBluetoothTransport implements RadioTransport {
     await this.characteristic.startNotifications()
     this.characteristic.addEventListener('characteristicvaluechanged', this.handleChanged)
     this.connected = true
+    this.queue.clear()
   }
 
   async close() {

@@ -247,8 +247,18 @@ function encodeChannel(channel: Channel, base?: Uint8Array, preserveUnknownFlags
   if (!baseIsUsable || !preserveUnknownFlags || payload[13] % 4 !== channel.pttid) payload[13] = channel.pttid
   payload[14] = channel.txPower
   payload[15] = (baseIsUsable && preserveUnknownFlags ? payload[15] & 0x03 : 0) | (channel.bandwidth << 6) | (channel.busyLock << 3) | (channel.scanAdd << 2)
-  payload.set(encodeRadioText(channel.name, 12), 20)
+  payload.set(encodeChannelName(channel.name, baseIsUsable ? payload : undefined), 20)
   return payload
+}
+
+function encodeChannelName(name: string, base?: Uint8Array) {
+  const normalized = name.trim()
+  if (base) {
+    const currentName = decodeRadioText(base, 20, 12)
+    if (!normalized || normalized === currentName) return base.slice(20, 32)
+  }
+  const fill = base?.slice(20, 32).some((value) => value === 0) ? 0 : 0xff
+  return encodeRadioText(normalized, 12, fill)
 }
 
 function decodeChannel(payload: Uint8Array, id: number, blockAddress?: number): Channel {

@@ -304,6 +304,18 @@ assert.equal(rawPreserveData.bankNames[0], '')
 assert.equal(rawPreserveData.bankNames[1], '中继台')
 assert.deepEqual(Array.from(encodeBlockForAddress(rawPreserveData, 0xa200)), Array.from(rawBankNames))
 
+const rawChannelNameData = createDefaultAppData()
+const rawChannelNameBlock = new Uint8Array(64).fill(0xff)
+rawChannelNameBlock.set(encodeChannelFrequency('439.46250'), 0)
+rawChannelNameBlock.set(encodeChannelFrequency('434.46250'), 4)
+rawChannelNameBlock.set(encodeRadioText('梧桐山', 12, 0), 20)
+applyBlockToAppData(rawChannelNameData, 0, rawChannelNameBlock)
+assert.equal(rawChannelNameData.channels[0][0].name, '梧桐山')
+rawChannelNameData.channels[0][0].name = ''
+assert.deepEqual(Array.from(encodeBlockForAddress(rawChannelNameData, 0).slice(20, 32)), Array.from(rawChannelNameBlock.slice(20, 32)))
+rawChannelNameData.channels[0][0].name = '新名字'
+assert.equal(decodeRadioText(encodeBlockForAddress(rawChannelNameData, 0), 20, 12), '新名字')
+
 class NoisyBootTransport implements RadioTransport {
   readonly kind: RadioTransport['kind']
   readonly label = 'boot-noise'
