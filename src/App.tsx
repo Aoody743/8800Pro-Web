@@ -155,23 +155,12 @@ function App() {
     if (!transport) return
     let cancelled = false
 
-    const validateTransportHealthy = async () => {
-      if (!transport.isConnected()) return false
-      if (transport.kind !== 'serial') return true
-      try {
-        await new Shx8800ProSession(transport).validateConnection()
-        return true
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '未知错误'
-        addLog(`USB 握手校验失败：${message}`)
-        return false
-      }
-    }
+    const isTransportHealthy = () => transport.isConnected()
 
     const syncConnection = async () => {
       if (cancelled || manualDisconnectRef.current || reconnectingRef.current) return
       if (busyRef.current) return
-      if (await validateTransportHealthy()) {
+      if (isTransportHealthy()) {
         setReconnectAttempt(0)
         return
       }
@@ -188,7 +177,7 @@ function App() {
         try {
           await wait(1500)
           await transport.reopen()
-          if (await validateTransportHealthy()) {
+          if (isTransportHealthy()) {
             setReconnectAttempt(0)
             setNotice({ tone: 'ok', text: '设备已自动重连，可以继续读频或写频。' })
             addLog('设备已自动重连')
